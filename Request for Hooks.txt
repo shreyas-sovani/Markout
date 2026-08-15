@@ -1,0 +1,418 @@
+Request for Hooks
+Open proposals for high-impact hooks waiting to be built.
+📌 What is a "Request For Hook"?
+A Request For Hook (RfH) is a community-submitted idea or ecosystem need for a Uniswap v4 hook — a feature, mechanism, or experiment someone wants to see built. This is a resource created for developers in the Uniswap Hook Incubator. We encourage devs to explore your own ideas including building an integration with your company.
+We’ve decided to make this page public to encourage new ideas. This is a non-exhaustive list as there are infinite range of hooks that can be built on v4.
+⚙️ How to Use This Page
+Browse by section below
+🔧 Hook Ideas taught in UHI
+📣 Uniswap Ecosystem Requests
+2026 Hookathon Themes
+UHI9: Impermanent Loss & Yield Systems
+UHI10: Sustainable Liquidity and MEV Protection
+Hookathon Sponsor Hook
+Reactive Nework
+Other Technology/Community Ideas
+If you’re in UHI, share ideas that you’re excited by in #hook-ideas in Discord
+Want to submit one? Share your idea here.
+General Hook Ideas
+🔧 Hook Ideas taught in UHI
+Hook Name
+	Description
+	Gas Price Fees
+	A hook that dynamically modifies Swap Fees (LP Fees) in the related pool in response to movements in average gas price onchain, which can make pools more competitive by decreasing fees during periods of high gas and increasing fees during periods of low gas around a base fee.
+	JiT Rebalancing Hook
+	A hook that has LPs transfer their tokens to the hook, instead of the Pool Manager directly, and does active management for the tokens. Originally it places all liquidity full-range across the pool. If a “large” swap is detected (large can be defined by % of reserves, or a certain dollar amount, etc) - the hook takes all liquidity it’s managing and concentrates it in a +- 1 tick range around the current tick, allowing the swapper to get access to high liquidity depth without causing much slippage and having these LPs gain most of the fees around that tick. After swap, it rebalances back to full range
+	Nezlobin’s Directional Fee
+	A hook that dynamically increases/decreases swap fees in one direction to deter large price movements caused by arbitrageurs that can create toxic order flow to mitigate impermanent loss for LPs.
+	CSMM Custom Curves
+	A simple custom pricing curve (CSMM) implemented as a NoOp hook that follows the invariant x+y=kx + y = kx+y=k instead of x∗y=kx * y = kx∗y=k​
+	LAMMBert
+	Another custom pricing curve implemented as a NoOp hook that follows the Lambert W function. Tweet reference
+	Async Swap Fulfillments
+	For large swaps, accept input tokens from the user and NoOp the actual swap. Later, at a “random” point in time - through VRF Oracles for example - pick an unfulfilled swap and execute it. The idea is to deter sandwich attackers by introducing randomness for swap executions that can cause high slippage.
+	Coincidence of Wants (CoW)
+	Waits to match limit orders before hitting AMM.A modification of the limit order hook that NoOps the swap functionality and keeps orders unfulfilled for a threshold amount of blocks hoping to fulfill the order through a coincidence of wants. If no CoW is found, then order is executed similar to limit orders.
+	📣 Uniswap Ecosystem Requests
+Hook Name
+	Description
+	Updated February 2026
+	
+
+	Perp DEXs built with hooks (Unichain)
+	Experimentation with perpetual DEX designs using hooks, including margin management, liquidations, and incentive mechanisms.
+	JIT liquidity / issuance hooks for new assets
+	Hooks that enable just-in-time liquidity or issuance for newly launched or illiquid assets, improving price discovery and reducing initial slippage.
+	Stable-focused hooks
+	Hooks oriented around stablecoins, including liquidity management, incentive design, and stability mechanisms.
+	Smart borrow & leveraged liquidity hooks
+	Problem space focused on borrowing against liquidity positions to increase effective liquidity depth with the same base capital. Possible directions: • Borrowing against LP positions and reinvesting into the same pool • Dynamic LTVs, adaptive rates, or risk-aware borrowing models • Flash-loan-based leverage applied only to the active tick Applicable to both stable and volatile assets, depending on design.
+	Liquid staking token (LST) optimized hooks
+	Improved handling of liquid staking tokens (e.g., stETH) via hooks that manage rebasing behavior, yield distribution, or pricing adjustments.
+	Liquidity locking & token launch hooks
+	Hooks for token launches or ICO-style mechanisms that lock liquidity or condition unlocks based on time, volume, or market behavior.
+	NFT strategy token hooks (Tokenworks-inspired)
+	Hooks where fees are used as protocol revenue to accumulate NFTs, suitable for experimental or solo builders.
+	External revenue–driven liquidity incentives (Liquity v2 / BOLD-inspired)
+	Using external or protocol-level revenue streams to incentivize liquidity, treated as a design inspiration rather than a strict hook implementation.
+	Updated April 2025
+	
+
+	Dynamic Fee Hook
+	Automatically adjusts swap fees based on market conditions to optimize fee generation and liquidity utilization. This hook can be made customizable to specific asset pairs and types as well. Can be based on volatility, reward/loyalty programs, gas price spikes, etc.
+	Rehypothecation Hook
+	Allows LP positions outside of the active tick to be deposited into lending protocols to earn yield until the liquidity is needed for a swap.
+	Custom Curve Hook
+	Allows LPs to implement custom price curves to optimize pricing for specific assets.
+	Asynchronous Swap Hook
+	Ability to enforce temporal and/or other constraints to fill swaps (i.e., application specific sequencing, coincidence of wants, etc.)
+	MEV-Mitigating Hooks
+	Hooks that tackle MEV (Maximal Extractable Value) with template strategies to prevent different forms including front and backrunning, sandwiches, JIT, and more to improve execution for users.
+	Reward Aggregator
+	Distributes incentives to liquidity providers based on pool activity, boosting participation in targeted pools.
+	Liquidations Hook
+	A customizable hook designed to efficiently and safely handle liquidations.
+	Auto-Position Rebalancing
+	Automates the rebalancing of liquidity positions to optimize capital efficiency for LPs.
+	Oracle Hooks
+	Enables custom or novel price feeds by recording data (e.g. Time-Weighted Average Price) for integration with other DeFi protocols.
+	Permissioned Pool Hook
+	Enable compliant-hooks for institutions by allowing for arbitrary rules and logic to affect pool behavior, such as restricting pool access to participants based on KYC or geolocation status.
+	Auto-Hedging Hook
+	Protects liquidity providers from impermanent loss through automated hedging strategies.
+	Time-Weighted Average Market Maker (TWAMM) Hook
+	Facilitates large trades over time, minimizing price impact and attracting larger retail and institutional liquidity.
+	LRT Liquidity Hook (analogous to Sanctum in Solana)
+	Special logic for LST/LRT AMMs. See details in blog post by Peteris Erins
+	Internalized MEV
+	LPs earn MEV profits. E.g. through offchain/onchain ahead of time bidding for top-of-block transaction rights.
+	Oracleless Lending Protocol
+	Creating a new lending protocol offering features like flexible liquidation thresholds, oracle-free operations, and enhanced earnings for liquidity providers. Link for more details.
+	Tornado Cash on Hooks
+	A Tornado-like system, utilizing all of Uniswap's liquidity as its pool. Tweet with more detail.
+	Hook Safety as a Service
+	Insuring safety of a hook up to a certain amount. Tweet with more detail.
+	Gasless Swaps
+	Incentivizing traders via a non-toxic MEV executer with gasless swaps. Tweet with more detail.
+	Keeper Activity Hook
+	An intuition on using v4 hooks to facilitate keeper activity. Tweet with more detail.
+	UniBrain Hook
+	The UniBrain hook is designed to automatically trigger onchain actions using an automated Dutch Auction via a Uniswap V4 Pool. It can turn Uniswap v4 into a hub for triggering onchain function calls. Doc with more detail
+	Value Accrual Designs
+	A simple hook fee introduces vampire/fork risk. Retaining LPs will be crucial to justifying hook fees. Tweet with more detail.
+	Auction-Managed AMM
+	An auction-managed AMM that shows the design space of v4. Tweet with more detail.
+	2026 UHI Hookathon Themes
+As Uniswap v4 continues to grow, the Uniswap team wants to incentivize innovation in particular areas. Each 2026 Hookathon will have a special prize track for the best hooks built in a specific category. You can find the Hookathon themes for 2026 below.
+🏁 UHI8 Hookathon: Specialized Markets
+The goal here is to push hook innovation toward bespoke liquidity systems tailored to specific assets, trade sizes, and chains.
+What builders could create:
+Hook Idea
+	Description
+	Hook Templates
+	Hook templates optimized for RWAs, stablecoins, or long-tail tokens
+	Chain-Localized Routing
+	Chain-localized routing hooks (e.g. Base, Optimism, Arbitrum)
+	Large-Cap Execution
+	Hooks for large market cap pairs that handle block-based execution or segmented order flow
+	Dynamic Stablecoin Managers
+	Stablecoin liquidity managers with dynamic fee and rebalancing logic
+	Non-Fungible LP Positions
+	NFT-like fractionalization of LP positions for retail access
+	🏁 UHI9 Hookathon: Impermanent Loss & Yield Systems
+The goal here is to push hook innovation toward yield-protected liquidity systems that shield LPs from impermanent loss while unlocking sustainable, predictable on-chain returns.
+What builders could create:
+Hook Idea
+	Description
+	IL Insurance Hooks
+	Impermanent-loss insurance hooks that offset losses via dynamic rebalancing or premium accrual
+	YieldBasis-Style Fixed Income
+	Fixed-income systems inspired by YieldBasis or Pendle that create predictable, sustainable returns for LPs
+	Delta-Neutral Hooks
+	Hooks that hedge LP exposure using per-block swaps, options, or external hedging protocols
+	Fee-Smoothing Hooks
+	Hooks that automatically reinvest or distribute yield over time, smoothing fee flow for LPs
+	Cross-Pool Hedging Routers
+	Routers that match opposing liquidity positions across correlated pairs for cross-pool hedging
+	🏁 UHI10 Hookathon: Sustainable Liquidity & MEV Protection
+The goal here is to reduce value leakage from LPs and make volatile-pair liquidity sustainable at low fees — pushing hook innovation toward fair, MEV-protected execution that lets LPs compete on any asset pair.
+What builders could create:
+Hook Idea
+	Description
+	Sandwich-Neutralizing Hooks
+	Hooks that randomize swap ordering or delay callbacks to neutralize sandwiching attacks
+	Time-Weighted Execution Hooks
+	Time-weighted execution windows or probabilistic settlement hooks that smooth order flow over time
+	Fee-Rebate Systems
+	Fee-rebate mechanisms tied to order flow quality, rewarding LPs for favorable execution
+	Hybrid Routing Hooks
+	Hybrid routing between private orderflow systems (CoW, Flashbots Protect) and Uniswap for best execution
+	MEV Auction Hooks
+	Protocol-native MEV auction hooks where LPs recapture a share of extracted value directly on-chain
+	Other Technology Integrations/Community Ideas
+🧠 Community Ideas
+Hook Idea
+	Description
+	giveTargeted Liquidity
+	A differentiated fee based on your token ownership or some general way of doing loyalty based fees. Could be built in conjunction with spindl.xyz (from Ani Pai at Dragonfly)
+	Lending hooks
+	Hooks for borrowing liquidity in AMM positions, to give traders similar exposure to a perp (from Derek Walkush at Variant)
+	Automated liquidity provisioning
+	hooks for automatically rebalancing concentrated liquidity to max yield (from Derek Walkush at Variant)
+	⚛️ Reactive Network
+📘 Reactive Network Docs
+🧑🏻‍💻 Reactive Network Smart Contract Code Examples
+👩🏻‍🏫 Starter Course for learning Reactive Network
+📲 Telegram developer chat.
+Hook Idea Examples:
+Reactive Network doesn’t have specific hook requests for this hackathon. Instead, they are excited to provide the infrastructure that can help you implement a range of ecosystem and sponsor hook ideas listed below, but not limited to just this list. We recommend considering Reactive Contracts to implement any of the following hook ideas:
+Liquidations Hooks
+Asynchronous Swap Hooks
+Oracle Hooks
+Permissioned Pool Hook
+NFTs and Proof of Ownership
+Arbitrage
+Liquidity Optimizations
+Time-Weighted Average Market Maker (TWAMM) Hook
+Oracleless Lending Protocol
+Hook Safety as a Service
+UniBrain Hook
+How to think about using Reactive Network
+Here’s how Reactive Network works: Reactive Smart Contracts (RSCs) let you monitor on-chain events on chain A and react to those events by triggering callbacks (submitting transactions) on another chain B (or chain A). This enables cross-chain automation and modularity, where your logic can respond to activity in existing smart contracts without modifying them. We believe that our technology will be especially useful when combined with Uniswap Hooks, supercharging them with time-based or conditional automations and cross-chain functionality.
+To add reactivity to your smart contract setup, you will just need to deploy two additional Solidity smart contracts: on Reactive Network and on the destination chain.
+🔀 Across Hook Ideas
+📘 Across Docs
+Guidance for integrating Across with your Uniswap v4 Hook
+The following ideas aim to guide developers into making useful hooks that leverage Across’ crosschain infrastructure. Design space is very broad here. You could use Across and Uniswap v4 Hooks in a bunch of creative ways. While the following ideas should help you get started and work towards building complex technical solutions, please note that you can also submit custom hook ideas, but please discuss your ideas with the mentors before building.
+As you read these ideas, you will notice that they always work in conjunction with a concept or a Hook that you have worked on during UHI. We expect developers to expand their UHI based codebases and add crosschain features to it with Across.
+Hook Name
+	Description
+	Technical Implementation Advice
+	Further Implementation Ideas
+	Crosschain Gas Price Optimization Hook
+	Optimize swap execution and maximise yield by bridging assets to chains with lower gas fees using Across Protocol.
+	• In beforeSwap, fetch current gas prices across supported chains. • Determine if bridging to another chain offers cost savings. • If so, use Across SDK (or spokepool contracts) to initiate a bridge to the target chain. • Upon completion, execute the swap on the destination chain.
+	• Integrate real-time gas price feeds for more accurate assessments. • Develop user interfaces to inform users of potential savings. • Implement fallback mechanisms in case of bridging failures.
+	Crosschain Arbitrage Hook
+	Identify and exploit price discrepancies across chains by bridging assets using Across Protocol.
+	• In beforeSwap, monitor token prices across chains. • If a profitable arbitrage opportunity is detected, initiate a bridge via Across to the target chain. • Execute the swap on the destination chain to realize the arbitrage.
+	• Develop automated bots to continuously scan for arbitrage opportunities. • Incorporate machine learning models to predict future price movements. • Establish risk management protocols to handle volatile market conditions.
+	Crosschain Coincidence of Wants (CoW) Hook
+	Match users with opposing swap intents across chains, reducing reliance on liquidity pools. Essentially if User A has X intent on Chain 1, and User B has Y intent on Chain 2, then bridge using Across to satisfy the intents of both users.
+	• In beforeSwap, query a registry of pending swap intents. • If a match is found, coordinate a direct swap via Across. • Finalize the swap upon successful bridging.
+	• Develop a decentralized intent matching engine. • Implement privacy-preserving techniques for intent sharing. • Incorporate reputation systems to enhance trust among participants.
+	Crosschain Rehypothecation Hook
+	Maximize yield by reallocating idle liquidity to lending protocols on other chains via Across.
+	• In afterAddLiquidity, detect idle liquidity not actively used in swaps. • Bridge these assets to a lending protocol on another chain using Across. • In beforeRemoveLiquidity, ensure assets are retrieved and available for withdrawal.
+	• Integrate with multiple lending platforms to diversify yield sources. • Implement dynamic allocation strategies based on market conditions. • Develop dashboards for LPs to monitor rehypothecation activities.
+	Crosschain Custom Curve Hook
+	Implement custom pricing curves across chains, adjusting liquidity distribution via Across.
+	• In beforeSwap, apply custom pricing logic. • In afterSwap, assess liquidity distribution. • If imbalances are detected, use Across to redistribute liquidity accordingly across various chains.
+	• Develop user interfaces for LPs to define custom curves. • Incorporate machine learning to optimize curve parameters. • Enable community governance over curve configurations.
+	Crosschain Reward Aggregator Hook
+	Aggregate and distribute rewards to liquidity providers across chains using Across.
+	• In afterAddLiquidity and afterSwap, record user activity and calculate rewards. • Periodically, aggregate rewards and use Across to distribute them to users on their preferred chains. • Offchain component to track all liquidity positions cross chain as well so perhaps AVS integration there would be useful.
+	• Introduce tiered reward systems based on user engagement. • Implement real-time reward tracking dashboards. • Facilitate crosschain staking mechanisms for additional incentives.
+	Crosschain Shared State Access Hook (AVS-Enabled)
+	Maintain synchronized pool states across chains using an Actively Validated Service (AVS) and Across for liquidity movement.
+	• In beforeSwap, retrieve global pool state from the AVS. • Use this data to adjust swap parameters for consistency. • In afterSwap, update the AVS with new state information. • If liquidity imbalances are detected, use Across to redistribute assets.
+	• Enhance AVS with predictive analytics for proactive adjustments. • Develop alert systems for significant state discrepancies. • Integrate with other crosschain protocols for broader interoperability.
+	Crosschain CoW to Reduce Taker Flow (AVS-Enabled)
+	Match opposing trades across chains to minimize taker flow, leveraging an AVS and Across for coordination.
+	• In beforeSwap, consult the AVS for matching trade intents on other chains. • If a match is found, coordinate the trade and use Across to bridge assets. • In afterSwap, confirm trade completion and update pool states accordingly.
+	• Implement AI-driven matching algorithms for higher efficiency. • Develop user interfaces for intent submission and tracking. • Establish partnerships with other DEXs for expanded matching opportunities.
+	🖋️ Ink Hook Ideas
+📘 Ink Docs
+Hook Idea
+	Description
+	Permissioned Pools
+	Using Kraken Verify, create permissioned pools using beforeSwap to query address verification(s). Large value prop for RWAs, institutions, etc.
+	No Idle Funds
+	Using beforeSwap and afterSwap, allow users to use funds held in yield strategies for swaps, improving individual capital efficiency.
+	Degen Pools
+	Specifically for early stage tokens, implement modular hook logic which adjusts pool behavior.
+	Derivatives
+	Synthetic options contracts for proactive risk management without the traditional liquidity concerns.
+	Gamified Pools
+	Randomized lottery of swap fees accrued over X period / boosted LP rewards / fund the devs.
+	CEX/DEX Merge
+	Merging the books of CEX and DEX for: - arbitrage - liquidity aggregation - minimal slippage.
+	⭕ Circle Hook Ideas
+📘 Circle Docs
+The following ideas aim to guide developers in creating powerful Uniswap v4 Hooks that leverage Circle’s onchain USDC infrastructure — including CCTP v2 for cross-chain bridging, Circle Paymaster for gasless UX, and Circle Wallets for programmable asset management. The design space is vast and composable. You can combine Circle dev tools with Hooks to build novel payment experiences, dollar-backed assets, or advanced crypto capital market systems.
+Each example below builds upon Hook functionality introduced during the Uniswap Hook Initiative (UHI) and shows how adding Circle infrastructure unlocks new utility. You're encouraged to evolve your UHI-based hooks into more production-grade systems using Circle’s tools — and to ask in #dev-support or the #circle channel if you’re unsure how to structure the integration.
+Hook Idea
+	Description
+	Resources
+	Auto-Replenishing Cross-Chain USDC Pools
+	After a swap, this hook checks if USDC reserves in a Uniswap v4 pool have dropped below a threshold. If so, it triggers a CCTP v2 bridge transfer to replenish liquidity from a Circle Wallet on another chain. Keeps USDC liquidity deep and responsive, especially for high-throughput cross-chain DeFi protocols. Ideal for maintaining minimum liquidity guarantees in dollar-backed pools.
+	📘 CCTP v2 Documentation 📘 Circle Wallets
+	Pay-Per-Swap with USDC Using Circle Paymaster
+	This hook enables users to pay for gas in USDC during swaps, making Uniswap more accessible to users who don't hold ETH or other native tokens. It integrates with Circle Paymaster to automatically deduct gas fees in USDC from the user's wallet. Enables truly gasless UX for USDC holders, useful in consumer apps or fiat-like trading platforms.
+	📘 Circle Paymaster 📘 USDC Overview
+	Streaming USDC Rewards for Liquidity Providers
+	Implements a liquidity mining mechanism using afterAddLiquidity and afterRemoveLiquidity to track time-weighted LP participation. Rewards are distributed in USDC over time from a Circle Wallet vault, encouraging sustained liquidity provision. Supports more sustainable yield farming than emission-based token rewards.
+	📘 Circle Wallets 📘 USDC Overview
+	Real-Time FX Swap Pools Using CCTP
+	Enables on-demand FX swaps between USDC and other stablecoins across chains by triggering a CCTP v2 transfer in beforeSwap. Users can perform cross-chain stablecoin swaps (e.g., USDC ↔ EURC) with real-time settlement into a Uniswap pool. Ideal for cross-border payments, decentralized neobanks, and global payroll platforms.
+	📘 CCTP v2 Documentation 📘 USDC Overview
+	Compliance-Aware Swap Limits Using Smart Wallets
+	Adds a compliance layer with Compliance Engine to beforeSwap, allowing only verified or smart account users to interact with USDC pools. Optionally enforces spend limits, ensuring that liquidity is accessible within regulatory constraints. Can integrate World ID or programmable identity with Circle Wallets.
+	📘 Circle Wallets 📘 USDC Overview
+	🏗️ EigenLayer Hook Ideas
+📘 EigenLayer Docs
+Recommended reading
+AVS Overview
+Request for AVS: Uniswap v4 Hooks
+Guidance for integrating EigenLayer with your Uniswap v4 Hook:
+Familiarize yourself with basic EigenLayer and AVS concepts here.
+AVS or App: for the EigenLayer sponsor track, choose to either implement an AVS integration with Uniswap v4 hooks (aka AVS Builder) or leverage an existing mainnet AVS as part of your solution (aka AVS Consumer App). Options here.
+Review prior hook contributions to see existing ideas that have been implemented such as coincidence of wants, price and volatility Oracles, dark pools. Choosing something new and novel that has not been implemented before will give you the best chance to win prizes.
+Describe your EigenLayer integration architecture in sufficient detail in your Readme.md or presentation so that our judges can clearly understand your ideas.
+Leverage the latest techniques in Vibe Coding to build fully functioning code more quickly and (nice to have) add a front end to your EigenLayer app for demo purposes.
+If you build an AVS, implement one of the example AVS repositories in our Developer Samples section here, such as Hello World or Incredible Squaring.
+Be sure to include a clear reference to your EigenLayer AVS or AVS integration code in your submission.
+Hook Idea
+	Description
+	Solve coincidence of wants to reduce taker fees
+	• Taker flow will exist in both directions (buy/sell) for any given pool. • AVS operators can match these orders to reduce the overall flow that gets sent to the Uniswap pool
+	Dynamic fees for periods of high volatility
+	• Taker flow will exist in both directions (buy/sell) for any given pool. • AVS operators can match these orders to reduce the overall flow that gets sent to the Uniswap pool.
+	Automatically adjust LP positions for LST pools
+	• Uniswap LPs face extra slippage from the natural yield-bearing nature of LSTs when LPing yield-bearing tokens (like stETH-ETH or rETH-USDC). • AVS operators could automatically read the yield from these liquid staking positions and move all LP positions up the curve by a constant amount.
+	Dark Pools
+	• Some people are willing to wait for their transaction to be executed, but they want optimal prices. • AVS operators can hold orders privately and match market orders together at the price of the most liquid exchange, predefined for that pair.
+	Run an auction to reduce Loss Versus Rebalancing (LVR)
+	• LVR exists because of the price discrepancy between continuous offchain exchanges (Binance) and onchain exchanges (which only trade every block, 13 seconds for Ethereum mainnet). • AVS operators can run an auction to determine who gets the first transaction in a block. • The proceeds of the auction would go to LPs, instead of validators as they would with traditional MEV auctions.
+	Run a shared state across all chains
+	• AMM pools can have different prices across chains. This leads to less efficient price discovery and more arbitrage on smaller chains. • Have operators maintain an aggregate state of capital. When traders send orders, they trade against this combined pool and receive less slippage.
+	🔐 Fhenix Hook Ideas
+📘 Fhenix CoFHE Docs Quickstart
+Guidance for integrating Fhenix into your Uniswap v4 Hook:
+Read the CoFHE quickstart docs above.
+Familiarize yourself with the FHE library operations, control flow, decryption patterns, and access controls.
+Review the FHE market order and limit order example hooks above for inspiration.
+Use the fhe-hook-template repo to get started building your FHE hook.
+Note: It is not necessary to use the existing encrypted tokens in the template, feel free to change the token logic or just encrypt the user intent alongside public erc20 tokens etc. do whatever you think works best!
+Describe your Fhenix integration in sufficient detail and describe the benefits privacy/FHE brings to your project in the README or presentation so that our judges can clearly understand your ideas.
+Extras:
+Use the fhe-assistant training materials to vibe-code some FHE contracts.
+Create a nice frontend utilising the cofhe-scaffold-eth project.
+Use the cofhe-mock-contracts repo to test your FHE contracts.
+Note: Valid submissions must use operations from the Fhenix FHE library in your smart contracts. (E.g. FHE.add() sub()...) Fhenix is open to a wide range of creative Fhenix Hook integrations, so long as the hook uses the Fhenix FHE library. Some potential hook ideas might be:
+Hook Idea
+	Example or Explanation
+	FHE Limit Order Hook
+	See an example here that you could expand on
+	FHE Market Order Hook
+	See an example here that you could expand on
+	FHE TWAMM Hook
+	Enables private, time-weighted order execution on Uniswap v4 - encrypting trade details and computing off-chain to eliminate MEV and conceal intent. Flow: Public swap triggers → Virtual time advances → Encrypted deltas computed off-chain → Bundled and applied anonymously → Orders remain unlinkable until optional final reveal. Business Impact: - Execute long-term trades with fully encrypted size, direction, and schedule—eliminate MEV risk, preserve alpha. - Enable DAO treasury rebalancing and algorithmic strategies without signaling intent. - Support fair launch mechanisms and OTC flows with optional post-settlement receipts for auditability.
+	Encrypted Dutch Auction Hook
+	Enables confidential Dutch auctions on Uniswap v4 - encrypting starting price, decay parameters, and bidding progress to prevent sniping while maintaining fair price discovery. Flow: Encrypted auction parameters set → Hidden price decay computed homomorphically → Traders submit encrypted bids → FHE comparison against current price → Execution only on winning bid → Optional parameter reveal post-settlement. Business Impact: - Execute large token sales without revealing strategy—eliminate front-running and bid sniping while preserving natural price discovery. - Enable fair liquidation auctions for protocols and lending platforms without telegraphing desperation or reserves. - Support treasury diversification and fundraising with encrypted reserves, timeline flexibility, and protection from coordination attacks.
+	Private Portfolio Rebalancing Hook
+	Enables confidential multi-asset rebalancing on Uniswap v4 - encrypting target allocations, trade sequences, and execution timing to prevent front-running of institutional strategies. Flow: Encrypted target allocations set → Current positions computed privately → Trade deltas calculated homomorphically → Execution spread across multiple blocks with encrypted timing → Cross-pool coordination without strategy revelation → Optional compliance reporting. Business Impact: - Execute institutional rebalancing without alpha decay—eliminate copycat trading and front-running while maintaining optimal execution. - Enable DAO treasury management and automated strategies with encrypted governance parameters and execution flexibility. - Support compliance and audit requirements with selective reveal capabilities while preserving competitive advantage during execution.
+	✳️ Flaunch Hook Extension Ideas
+📘 Flaunch Docs
+Hook Extension Name
+	Description
+	Token Fee Claimer
+	Integrate with the Flaunch Token Manager, enabling any UV4-compatible hook to allow ETH fee claims for memecoins. These fees accrue to the holder of the Flaunch-generated ERC721 and can be claimed across multiple tokens held by a single EOA or contract in one call. This mechanism supports efficient fee consolidation and incentivizes NFT ownership within the Flaunch ecosystem.
+	Migration Adapter
+	Enable a migration hook to support whitelisted ERC20 token migrations into the Flaunch ecosystem. This hook would allow legacy or pre-launch tokens to transition into Flaunch protocol mechanics. It provides compatibility with upstream protocols and lays the groundwork for composable integrations, contingent upon whitelist verification.
+	Liquidity Funding Staker
+	Allow staking of Flaunch ERC721s to withdraw ETH and fund Uniswap V4 liquidity positions. The hook should support configurable options for single- or double-sided liquidity provisioning. Yield generated from the position can either return to a project treasury or automatically compound back into the position, supporting sustainable growth and active liquidity management.
+	Discovery Launchpad Migrator
+	Facilitate non-linear token launches with team allocations and flexible price discovery curves. At the end of the discovery phase or upon full fundin
+	🌀 Arbitrum Stylus Hooks
+📘 Stylus Docs
+Stylus is designed for compute- and memory-intensive on-chain operations, offering builders two key opportunities:
+Unlock New Use Cases Beyond the EVM: Leverage the Rust ecosystem to enable functionalities that are currently impractical or infeasible on the EVM due to computational/ gas limitations.
+Optimize Existing Solidity Hooks for Gas Efficiency and Scalability: Rewrite Solidity hooks in Stylus to demonstrate significant gas savings and improved performance, with detailed benchmarking comparisons. For inspiration, explore this list of Solidity hooks.
+Hook Idea
+	Description
+	Pricing & Profit Innovation Hooks
+	Innovate pricing structures to capture more value and align incentives between participants Example: Implement a custom pricing curve with hooks that dynamically adjusts token prices based on supply and demand using mathematical models like linear, exponential, or sigmoid curves. It should support real-time pricing adjustments, fair distribution, and revenue optimization, making it especially valuable for token launches or early liquidity provision. See examples of various curves and their applications here.
+	Risk Management & Security Hooks
+	Strengthen the system with robust, manipulation-resistant mechanisms. Example: Train an ML model off-chain using historical on-chain data to predict future volatility, then embed the model in a Stylus contract for efficient, low-cost execution. The contract should integrate hooks to dynamically adjust swap fees: increasing fees during high volatility to protect liquidity providers and mitigate impermanent loss, while lowering fees during low volatility to encourage trading. Example: Create a Median Price Oracle created with hooks that calculates the median of recent pool prices to provide a robust and manipulation-resistant on-chain price feed. Unlike TWAPs or simple averages, this hook ensures price stability by filtering out outliers and sudden spikes, making it ideal for DeFi protocols relying on accurate price data for liquidations, lending, or trading. This can enhance security and reliability for projects that need resilient oracles. For more details, explore this presentation and hackathon project.
+	Liquidity & Yield Optimization Hooks
+	Maximize returns and improve liquidity management with strategic automation. Example: Implement a TWAMM hook to split large orders into smaller, time-distributed trades, reducing slippage and minimizing market impact. This hook would automate the execution of partial trades at regular intervals. By spreading out the execution over time, it ensures smoother price adjustments and steadier liquidity utilization. More on TWAMM here.
+	User Experience (UX) Hooks
+	Enhance user interactions through efficient, real-time, and automated features Example: An on-chain limit order feature that allows users to specify a price range and provide liquidity for either token in the pool, with automated execution when the market crosses the user’s target range. This could support advanced functionalities like partial fills, order expirations, and dynamic fee customizations. For inspiration, see this article.
+	Social & Gamified Engagement Hooks
+	Drive user engagement through incentives. Example: A Loyalty Tier Fee Hook that dynamically adjusts swap fees and rewards based on user engagement metrics such as trading volume, liquidity duration, and transaction frequency. The hook should efficiently track user-specific data, calculate loyalty scores in real-time, and apply tier-based fee adjustments during each interaction. Users will be assigned to loyalty tiers, each offering progressively greater benefits such as fee discounts or bonus rewards.
+	⛓️ Unichain
+📘 Uniswap Docs
+📕 Unichain Docs
+Ultimately, the Unichain prize track will reward the best innovation of any kind from builders in the Hookathon. If you’re looking for specific ideas or guidance then in addition to the broader Hook Ideas from the Uniswap team, Unichain is excited to see hooks that focus on the follow ideas:
+Hook Idea
+	Description
+	Derivatives/Perps
+	Perpetual futures built on Unichain, particularly leveraging V4 hooks on top of the core AMM. There's significant trading activity on Unichain with limited ability to hedge on-chain, making short positions especially valuable for active LPs.
+	Tokenized Strategies/Yield-Bearing Tokens
+	Hooks that package AMM liquidity in interesting ways or generate unique sources of yield tied to individual tokens. These can be actively used in lending markets to drive up native yields, with optimized hooks providing secondary market liquidity.
+	🔗 Chainlink Hook Ideas
+📘 Chainlink Docs
+Hook Idea
+	Description
+	Dynamic Fee Adjustment Based on External Data & Off-chain computation
+	• Create a Uniswap v4 hook that adjusts swap fees dynamically based on real-time data from Chainlink data feeds or external data using Chainlink Functions, and potentially Chainlink Automation. • This can help liquidity providers optimize earnings by increasing fees during periods of high volatility or reducing them during stable periods. • Additional depth on approaches in this document from Chainlink
+	Cross-Chain Pool Creation
+	Use Chainlink CCIP to enable the creation and initialization of a new pool across multiple blockchains. • Using the new Pool Manager, create a new Pool on one instance of Uniswap V4 • Create a hook that executes after the new Pool is initialized • In the logic of the hook, use Chainlink CCIP arbitrary messaging to communicate with other instances of Uniswap V4 on another chain(s), and send all the necessary information for the pool to also be created on the other instance(s) of Uniswap
+	Cross-Chain Token Transfers
+	• Use CCIP to bridge funds to an EOA or smart contract on another chain after a swap • Bonus point if you deposit the transferred funds into Uniswap on the destination chain. For example: ◦ Swap 1 ETH for USDC on Sepolia ◦ In the after swap hook, CCIP sends USDC to Base Sepolia Uniswap V4, with instructions to swap for WETH ◦ CCIP Receive function in hook receives tokens, initiates a new swap on Base Seplia for USDC to WETH
+	Automatically Adding/Removing Liquidity for LPs
+	Implement a hook that automatically adds or removes liquidity when certain thresholds are reached (profitability, stop-loss, take-profit, or compared to the overall market price). Here are some ideas to consider: • Automation + Functions: to calculate the profitability of a pool over time, have the state updated on-chain, then use that as an input to the hook to determine whether liquidity should be added. • Similar to the above, but to be used as an input to determine whether a stop-loss or profit threshold has been reached, and liquidity should be removed. • Similar to the above, you can use a custom hook without requiring the use of Automation, but then the user would need to call the custom hook. [Example provided in this doc] • Compare the pool price to the equivalent market wide price using Chainlink Data Feeds, and remove liquidity if a certain threshold is met, to protect against impermanent loss and abnormal market conditions
+	Custom Order Execution or Liquidity Modification Based on Real-World Events
+	Appeals to users looking to automate trading strategies that are influenced by external, non-crypto events. • Create a hook that executes specific trades or adjusts liquidity based on real-world events fetched through Chainlink Functions, such as sports outcomes, election results, or black swan events. • Synchronous: use Functions + Automation to maintain an on-chain state of the external event, which can then be referenced by the hook when required • Asynchronous: as outlined in the Dynamic Fee asynchronous example, trick the before swap hook to not execute the swap, and instead initiate a new Chainlink Functions call, then in the callback function initiate the swap again with the external data on-chain and ready to be used.
+	On-Chain Insurance Trigger
+	Hook that triggers insurance payouts or adjusts positions when a specific on-chain or off-chain event occurs. This can be used to automatically compensate LPs or traders in the event of unforeseen events, like oracle failures or severe market disruptions. Here are some ideas: • Chainlink Data feeds price or volatility data: as an input to either pay out some insurance amount or add/remove liquidity based on predefined criteria • Synchronous: Chainlink Functions + Automation ****to maintain an up-to-date on-chain state of something from off-chain, then potentially trigger a payout if conditions are met. ◦ e.g. if no block is produced by Etheruem for a given timeframe, then assume some severe disruption is occurring, and trigger a payout for the next block. • Asynchronous: Instead of using Automation to ensure off-chain data is written on-chain periodically, you can once again follow the pattern described in the Dynamic Fee asynchronous example to execute a Chainlink Functions call and response before processing the payout.
+	🧠 Brevis Hook Ideas
+📘 Brevis Docs
+Hook Idea
+	Description
+	General Brevis Ideas
+	Any hook that is powered by historical on-chain data and the computation on top of that, an example is trading volume based fee discount (not eligible as it has already been built): • Compute trading volume ZK proof using Brevis • Write the volume to a hook contract (“VIP table”) to activate fee discount tiers • When making a swap in the future, look up the “VIP table” to reduce fees • You can use other data sources to drive dynamic fee such as protocol token holding and many other possible data
+	LVR compensation based on market volatility
+	• Periodically compute market volatility indexes • Feed that to a dynamic fee hook to determine the fee percentage
+	Retrospective mining rewards based on fee generated in each LP position
+	• Time-length-based farming reward is harmful • Weight the fee distribution by evaluating how much fee is actually generated by each of the LPs • Distribute farming rewards based on epochs and compute fees generated by each LP position using Brevis
+	Token holding based fee discount
+	• Compute the time weighted average of protocol token using Brevis • Record that in the hook contract to activate corresponding fee discount
+	IDO/Free trade based on-chain OG status
+	• Generate proof of protocol/dApp usage during Brevis • Get 0 fee trading protocol tokens
+	User acquisition through on-chain user profiling
+	• Generate a ZK proof that a user is a big trader or holder in other similar protocols • Grant fee discount or even additional reward when the users purchases this token
+
+
+
+
+
+
+###Judging
+This section is meant to help you ensure you’re planning for the best possible Hookathon outcome and that you submit a hook that meets all the necessary requirements to be eligible for judging and for graduation.
+
+Binary Qualifications
+If any of these criteria are not true or present, your submission will not be evaluated in judging and you may not be eligible for alumni status.
+
+Criteria	Description	Pass/Fail Threshold	Notes
+Public GitHub Repo	GitHub repository is public.	Yes	Private repos must be cleared with Atrium Academy prior to submission and access provided to Hookathon judges. Private repos that have not been pre-cleared will be disqualified. The link to your Github repo must also be pointing to the correct branch in case you use multiple branches.
+Demo/Explainer Video	Demo or explainer video (≤5 min, no AI voices) explaining the hook is included in the submission.	Yes	Without a demo video, your project will not reviewed for judging.
+Valid Hook	Contains a valid Uniswap v4 hook or directly interfaces with hooks.	Yes	You must have built a Uniswap v4 hook to be eligible for judging and alumni status. Any exceptions must be submitted to team@atrium.academy and approved prior to the submission deadline.
+Written & Workable Code	Submission contains functional code created during the Hookathon period.	Yes	While you may have some code that was written prior to the Hookathon start date, a portion must be newly written during the Hookathon period.
+README with Partner Integrations	README lists partner integrations used and where they are in code (or states “No partner integrations”). Theoretically integrations or future plans to integrate will not be considered, and should not be mentioned for judging.	Yes	Your README must clearly outline where you’ve integrated partner tech to be reviewed for any partner prize.
+New Code for Returning Teams	Returning participants may only submit new code and functionality created since last judged submission.	Yes	Past code that was reviewed in a previous Hookathon is ineligible for prize consideration.
+Originality (No Copied Code)	Project must be original; directly copied code from workshops, curriculum, other developers, or past projects disqualifies the submission unless clearly credited.	Yes	Violations disqualify for prizes, graduation, and alumni perks.
+Note: A front-end is not required, but providing one may make judging more straightforward. If no front-end is provided, submission must include sufficient test cases for judges to verify functionality. Projects that have neither tests nor a frontend will not be judged for prizes.
+
+Scored Evaluation (Weighted)
+Scored on a 0–5 scale (0 = Poor/Not at all, 5 = Exceptional).
+
+For Hook Submissions that meet the Binary Qualifications listed above, judging will be based on the following categories below.
+
+Criteria	Description	Score Range	Weight (%)
+Original Idea	Novelty of the concept itself — is the idea behind the hook new to Uniswap or DeFi?	0–5	30%
+Unique Execution	Distinctiveness of how the hook is built — architecture, integrations, optimizations, UX.	0–5	25%
+Impact	Potential value to users and/or Uniswap ecosystem, or DeFi.	0–5	20%
+Functionality	How well the hook works as intended/outlined; robustness and completeness of implementation.	0–5	15%
+Presentation Pitch	Clarity, persuasiveness, and quality of the video explanation/demo.
