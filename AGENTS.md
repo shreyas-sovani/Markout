@@ -6,15 +6,13 @@ This file is the canonical source of instructions for any AI coding agent workin
 
 ## 0. Project Context
 
-* **What this project is**: Markout is a Uniswap v4 hook designed to protect liquidity providers from Maximal Extractable Value (MEV) and Loss-Versus-Rebalancing (LVR) without degrading the trader UX. It executes swaps immediately at a 3 bps fee while escrowing a 20 bps input bond. Using the Reactive Network's `Cron1` mechanism as a fully autonomous settlement engine, it verifies if the post-swap price mean-reverts (indicating uninformed organic flow, triggering a bond refund) or sustains (indicating toxic price discovery, triggering a bond donation to the pool).
-* **Current stage**: Hackathon MVP (UHI10 Hookathon — Dual-Track: Theme + Reactive Network).
-* **Primary stack**: Solidity, Foundry (for testing v4 hooks), Uniswap v4-core/periphery, and the Reactive Network (`reactive-lib`). Deployed across Ethereum Sepolia (Origin/Destination) and the Lasna Testnet (ReactVM).
+*Read PRD in docs/prd/markout.md*
 
-* **Hard constraints**:
-* **Immediate Fill:** Swaps must fill immediately on the AMM curve. No asynchronous delays or execution queues are permitted.
-* **Exact-Out Precision:** Bonds for exact-out swaps must be computed precisely as 20 bps of the absolute `amountIn` derived from the AMM's `balanceDelta`. Using `slot0` spot pricing for exact-out bond calculations is strictly forbidden.
-* **No External Oracles:** Toxicity must be determined purely by hook-local post-swap mean-reversion at window $T$. Do not import Chainlink or Pyth.
-* **Callback Authorization:** The destination executor's settlement function must accept `address rvm_id` as its first parameter to allow the Reactive Network to securely overwrite `address(0)`.
+### Things actively in flux right now
+
+- Nothing mid-flight. Contracts + tests complete and green (`forge test` 11/11). Remaining backlog: TSK-07 (Sepolia/Lasna deployment + `depositTo` funding) and TSK-08 (README, demo video, LiveProofPack). See `progress.md`.
+- Note: this Section 0 was condensed to a PRD pointer by a human edit during the 2026-08-17 session; the detailed project-context bullet list that used to live here is preserved in git history.
+
 ---
 
 ## 1. The Directory Documentation Protocol (mandatory, every task)
