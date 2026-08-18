@@ -21,9 +21,15 @@ Wrong addresses/args here = broken cross-chain wiring (RSC subscribing to the wr
 
 ## Current State
 
-Both executed successfully 2026-08-18 (see README address table). Sepolia via `forge script … --broadcast`; Lasna via `forge create` (see gotcha #1).
+Both executed successfully 2026-08-18 (see README address table). Sepolia via `forge script … --broadcast`; Lasna via `forge create` (see gotcha #1). Follow-up ops 2026-08-18: RSC had gone `Inactive` from Cron1 burn; refilled 2 REACT (debt now 0). All 7 Sepolia contracts Etherscan-verified. Lasna Sourcify still blocked by endpoint outage — retry pending.
 
 ## Decision Log
+
+### 2026-08-18 — post-deploy ops: Inactive diagnosis, refill, Etherscan verification
+- **Change**: no script changes. Diagnosed Reactscan `Inactive` (Cron1 RVM processing burned the 0.5 REACT deposit in ~3 h, ~0.18 REACT/h, leaving 0.0038 REACT unpaid debt); settled via system `depositTo` of 2 REACT (tx `0xc0df35b2…728d`, `debt()` → 0). Verified all 7 Sepolia contracts on Etherscan using the user's API key from `.env`.
+- **Reasoning**: `debt(address)` view on the system contract is the authoritative health check — Reactscan's balance/debt display lags. Etherscan status polling must target the V2 API (`api.etherscan.io/v2/api?chainid=11155111&…`); the V1 endpoint is dead.
+- **Rejected alternative(s)**: switching Cron1 → Cron10 to cut burn 10× — rejected because the PRD pins the settlement window to 3 Cron1 ticks (~21 s); funding is the cheaper knob for an MVP.
+- **Task/session**: ops session 2026-08-18 (user reported Reactscan Inactive + supplied Etherscan key).
 
 ### 2026-08-18 — initial deployment scripts + live deployment
 - **Change**: wrote both scripts; deployed to Sepolia + Lasna; funded RSC (0.5 REACT via system `depositTo`) and executor (0.02 SEP via Sepolia Callback Proxy `depositTo`).

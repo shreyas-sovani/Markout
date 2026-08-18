@@ -25,7 +25,7 @@ If any contract here is wrong, traders lose bonds incorrectly, LPs lose the MEV 
 
 ## Current State
 
-Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). All behavior covered by `test/` — 11/11 passing. Not yet deployed anywhere.
+Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). All behavior covered by `test/` — 11/11 passing. Deployed live 2026-08-18 (Sepolia stack + Lasna RSC, addresses in README; all Sepolia sources Etherscan-verified). Contracts themselves unchanged since 2026-08-17.
 
 ## Decision Log
 
