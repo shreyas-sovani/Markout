@@ -1,66 +1,81 @@
-## Foundry
+# Markout — The Fair Flow Frontier
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+A Uniswap v4 hook that protects liquidity providers from MEV and LVR **without delaying trades or trusting external oracles**, settled autonomously by the **Reactive Network**.
 
-Foundry consists of:
+Built for the UHI10 Hookathon (Dual-Track: Theme + Reactive Network).
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+## The idea in one paragraph
 
-## Documentation
+Toxic single-shot arbitrage moves an AMM to the global market price and *stays there* — there is no continuation flow to analyze. Organic flow moves the price *away* from the global market, and natural arbitrageurs push it back within seconds. So Markout classifies toxicity by **mean reversion**, not by looking at subsequent swaps in the same pool: every swap fills immediately at 3 bps, but escrows a 20 bps input bond. At a settlement window T (~21 s), a fully on-chain oracle checks the pool price: if it reverted toward the pre-swap price by more than 5 bps, the trade was organic and the bond is **refunded**; if it sustained (or drifted further), the trade was informed price discovery and the bond is **donated to the pool** as a socialized MEV dividend for LPs.
 
-https://book.getfoundry.sh/
+No keepers, no oracles, no delays — settlement timing comes from the Reactive Network's `Cron1` heartbeat event.
 
-## Usage
+## Architecture
 
-### Build
-
-```shell
-$ forge build
+```
+  Sepolia (11155111)                         Reactive Lasna (5318007)
+ ┌──────────────────────────┐               ┌─────────────────────────────┐
+ │ PoolManager + MarkoutHook│  SwapBonded   │ MarkoutReactive (RSC)       │
+ │  beforeSwap: store P_pre │──────────────▶│  queue trade, age 3 Cron1   │
+ │  afterSwap: 20bps bond   │               │  ticks (~21s)               │
+ │   escrow + 6909 receipt  │               │        │ emits Callback     │
+ │                          │               └────────┼────────────────────┘
+ │ MarkoutExecutor          │  settleMarkout(rvm_id, tradeId)             │
+ │  ← Callback Proxy        │◀──────────────────────┘ (1M gas, RVM-signed)
+ │   → hook.settle(tradeId) │
+ │ MarkoutHook.settle:      │
+ │   refund trader   ── or ──▶ poolManager.donate() → LPs
+ └──────────────────────────┘
 ```
 
-### Test
+| Contract | Chain | Role |
+| --- | --- | --- |
+| `src/MarkoutEngine.sol` | — (pure) | Mean-reversion classifier: `decide(P_pre, P_post, P_T)` in price-space Q128.128, strict >5 bps threshold. |
+| `src/MarkoutHook.sol` | Sepolia | Bonds 20 bps of the exact `balanceDelta`-derived `amountIn` (never `slot0`), escrows via `take`, mints an ERC-6909 receipt, emits `SwapBonded`; `settle()` refunds or `donate()`s. |
+| `src/MarkoutReactive.sol` | Lasna | Subscribes to `SwapBonded` (Sepolia) + `Cron1` (Lasna system contract); emits settlement `Callback`s after 3 ticks. |
+| `src/MarkoutExecutor.sol` | Sepolia | Receives callbacks; `settleMarkout(address rvm_id, bytes32 tradeId)` guarded by RVM-ID injection **and** the Sepolia Callback Proxy sender check. |
+| `src/MarkoutRouter.sol` | Sepolia | Reference router: settles the swap, then pays the hook's bond debt via `settleFor`. Integrating routers must do the same. |
+
+## Getting started
 
 ```shell
-$ forge test
+forge build
+forge test
 ```
 
-### Format
+Test suite (11/11): mean-reversion boundaries, organic refund, toxic donate, exact-out bond precision, dust-swap revert, synthetic Cron1 aging.
 
-```shell
-$ forge fmt
-```
+Deployment + live demo runbook: see [`todo.md`](./todo.md). Progress log: [`progress.md`](./progress.md).
 
-### Gas Snapshots
+## Deployed addresses
 
-```shell
-$ forge snapshot
-```
+To be filled during the deployment phase (see `todo.md` Phase 2–4):
 
-### Anvil
+| Contract | Chain | Address |
+| --- | --- | --- |
+| MarkoutHook | Sepolia | _TBD_ |
+| MarkoutExecutor | Sepolia | _TBD_ |
+| MarkoutRouter | Sepolia | _TBD_ |
+| PoolManager | Sepolia | _TBD_ |
+| MarkoutReactive | Lasna | _TBD_ |
 
-```shell
-$ anvil
-```
+## LiveProofPack
 
-### Deploy
+_To be filled from the live demo runs (todo.md Phase 5):_
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+- Organic trade: `SwapBonded` → `Callback` → `Settled(Refund)` hashes — _TBD_
+- Toxic trade: `SwapBonded` → `Callback` → `Settled(Donate)` hashes — _TBD_
+- Reactscan: `Active` status + `Callbacks > 0` — _TBD_
 
-### Cast
+## Disclosures
 
-```shell
-$ cast <subcommand>
-```
+- The toxicity oracle is **entirely hook-local**: it compares the pool's own `sqrtPriceX96` before the swap, after the swap, and at window T. No Chainlink, no Pyth, no partner oracle.
+- Settlement timing depends on the Reactive Network `Cron1` system event (~7 s/block on Reactive Lasna; 3 ticks ≈ 21 s).
 
-### Help
+## Repository layout
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+- `src/` — protocol contracts (see `src/AGENTS.md`)
+- `test/` — Foundry suite (see `test/AGENTS.md`)
+- `docs/prd/markout.md` — product requirements document
+- `todo.md` — manual end-to-end runbook
+- `progress.md` — build log

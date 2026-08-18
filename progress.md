@@ -40,4 +40,5 @@ Living log of what is done and what is next. Update at the end of every working 
 
 ## Session log
 
+- **2026-08-18 (session 2)**: Wrote `todo.md` (manual end-to-end runbook: wallets/faucets, deploy scripts to write, Sepolia + Lasna deployment, `depositTo` funding of both proxies, live refund/donate demo runs, LiveProofPack collection, video + submission). Replaced the Foundry boilerplate `README.md` with the real project README (architecture, contract table, TBD address/proof placeholders). No code changes; suite still 11/11.
 - **2026-08-17 (session 1)**: Scaffolded repo, implemented all five contracts, full test suite green. Key in-flight discovery: AGENTS.md Section 0 was replaced mid-session by an external edit (now a pointer to the PRD); flag left for the human. Nothing else in flux.

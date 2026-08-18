@@ -10,7 +10,7 @@ This file is the canonical source of instructions for any AI coding agent workin
 
 ### Things actively in flux right now
 
-- Nothing mid-flight. Contracts + tests complete and green (`forge test` 11/11). Remaining backlog: TSK-07 (Sepolia/Lasna deployment + `depositTo` funding) and TSK-08 (README, demo video, LiveProofPack). See `progress.md`.
+- Nothing mid-flight in code. Contracts + tests green (`forge test` 11/11). Remaining backlog lives in `todo.md` (manual end-to-end runbook): deploy scripts for Sepolia/Lasna, `depositTo` funding, live demo runs, README placeholders (addresses + LiveProofPack), video, submission.
 - Note: this Section 0 was condensed to a PRD pointer by a human edit during the 2026-08-17 session; the detailed project-context bullet list that used to live here is preserved in git history.
 
 ---
