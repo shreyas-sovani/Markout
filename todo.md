@@ -49,12 +49,7 @@ Everything a human must do by hand to take this repo from "tests green" to "judg
   cast to-unit $(cast to-hex $HOOK) ... # or just: printf '%x\n' $(( $((16#$(cast checksum-address $HOOK | tr -d '0x' | tail -c 4))) & 0x3FFF ))
   ```
   Simpler: confirm `getHookPermissions` view matches and the pool initialize tx did not revert `HookAddressNotValid`.
-- [ ] **2.4 Verify sources on Sepolia Etherscan** — PENDING: needs your Etherscan API key. Commands ready:
-  ```bash
-  forge verify-contract --chain-id 11155111 --verifier etherscan \
-    --etherscan-api-key $ETHERSCAN_KEY $HOOK_ADDR src/MarkoutHook.sol:MarkoutHook
-  # repeat for executor (no ctor args? has 2), router (2 args), poolManager (1 arg), tokens (0 args)
-  ```
+- [x] **2.4 Verify sources on Sepolia Etherscan** ✅ DONE 2026-08-18 — all 7 verified (Pass - Verified): MarkoutHook, MarkoutExecutor, MarkoutRouter, PoolManager, PoolModifyLiquidityTest, both MockERC20s. Status polling must use the **V2 API** (`https://api.etherscan.io/v2/api?chainid=11155111&...`) — the V1 endpoint is deprecated/dead.
 
 ## Phase 3 — Deploy Lasna (RSC)
 
@@ -97,6 +92,10 @@ Everything a human must do by hand to take this repo from "tests green" to "judg
 
 ## Standing reminders
 
+- **RSC burn rate is real: ~0.18 REACT/hour.** The Cron1 subscription processes every Lasna block (~7 s) forever — it drained the initial 0.5 REACT in under 3 h and flipped the RSC `Inactive` (subscriptions stop, callbacks stop). Fixed 2026-08-18 with a 2 REACT top-up (`depositTo` tx `0xc0df35b2…728d`, debt back to 0) ≈ 11 h runway. **Top up before any demo session and check `debt()` first when things go quiet:**
+  ```bash
+  cast call 0x0000000000000000000000000000000000fffFfF "debt(address)(uint256)" $RSC_ADDR --rpc-url $LASNA_RPC
+  ```
 - **Re-fund whenever debt appears.** `depositTo` on both proxies (Phase 4 commands) is idempotent — run it liberally.
 - **If callbacks never arrive:** check RSC status first (Reactscan), then executor balance, then subscription existence. 95% of the time it's funding.
 - **If Sepolia settle txs revert:** check executor gas limit vs `donate` path cost; the callback gas limit is 1,000,000 (`MarkoutReactive.CALLBACK_GAS_LIMIT`), which should be ample.

@@ -61,7 +61,7 @@ Deployed 2026-08-18 (see `todo.md` Phase 2–4 and `progress.md`):
 | Demo token1 | Sepolia | [0x144ABA252550ea7fBE7c487B8d153815097a1F15](https://sepolia.etherscan.io/address/0x144aba252550ea7fbe7c487b8d153815097a1f15) |
 | MarkoutReactive | Reactive Lasna | [0x6719F298F544c688999819d13A34E871E723f4d9](https://lasna.reactscan.net/address/0x6719F298F544c688999819d13A34E871E723f4d9) |
 
-The RSC is funded (0.5 REACT via system `depositTo`, tx `0x7c057feb…e48`) and the Sepolia executor is funded (0.02 SEP via Callback Proxy `depositTo`, tx `0xd94f00d9…83c`). Pool initialized at 1:1 with 10e18 full-range liquidity per side (init tx `0x4c4083ec…6b3`).
+The RSC is funded (2 REACT via system `depositTo`; note the Cron1 subscription burns ~0.18 REACT/h — see `todo.md` standing reminders) and the Sepolia executor is funded (0.02 SEP via Callback Proxy `depositTo`, tx `0xd94f00d9…83c`). Pool initialized at 1:1 with 10e18 full-range liquidity per side (init tx `0x4c4083ec…6b3`). All Sepolia contracts are source-verified on Etherscan.
 
 ## LiveProofPack
 
