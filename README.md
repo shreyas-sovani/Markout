@@ -49,15 +49,19 @@ Deployment + live demo runbook: see [`todo.md`](./todo.md). Progress log: [`prog
 
 ## Deployed addresses
 
-To be filled during the deployment phase (see `todo.md` Phase 2–4):
+Deployed 2026-08-18 (see `todo.md` Phase 2–4 and `progress.md`):
 
 | Contract | Chain | Address |
 | --- | --- | --- |
-| MarkoutHook | Sepolia | _TBD_ |
-| MarkoutExecutor | Sepolia | _TBD_ |
-| MarkoutRouter | Sepolia | _TBD_ |
-| PoolManager | Sepolia | _TBD_ |
-| MarkoutReactive | Lasna | _TBD_ |
+| MarkoutHook | Sepolia | [0x1Db65C7eFd46A7D663D05C7Bc61Bb88f116000C0](https://sepolia.etherscan.io/address/0x1db65c7efd46a7d663d05c7bc61bb88f116000c0) |
+| MarkoutExecutor | Sepolia | [0x1D054cd08CD007748602B7C116042f4c0534E1dD](https://sepolia.etherscan.io/address/0x1d054cd08cd007748602b7c116042f4c0534e1dd) |
+| MarkoutRouter | Sepolia | [0x63634289880D5aB9D74f43Fa7DC196C1F0605989](https://sepolia.etherscan.io/address/0x63634289880d5ab9d74f43fa7dc196c1f0605989) |
+| PoolManager | Sepolia | [0x7A1087753d33B928c2FEa8eFaFbC23BdDcb4cc53](https://sepolia.etherscan.io/address/0x7a1087753d33b928c2fea8efafbc23bddcb4cc53) |
+| Demo token0 | Sepolia | [0x91C7d1f821B30B76e6E47fE51243B75fb2F5938e](https://sepolia.etherscan.io/address/0x91c7d1f821b30b76e6e47fe51243b75fb2f5938e) |
+| Demo token1 | Sepolia | [0x144ABA252550ea7fBE7c487B8d153815097a1F15](https://sepolia.etherscan.io/address/0x144aba252550ea7fbe7c487b8d153815097a1f15) |
+| MarkoutReactive | Reactive Lasna | [0x6719F298F544c688999819d13A34E871E723f4d9](https://lasna.reactscan.net/address/0x6719F298F544c688999819d13A34E871E723f4d9) |
+
+The RSC is funded (0.5 REACT via system `depositTo`, tx `0x7c057feb…e48`) and the Sepolia executor is funded (0.02 SEP via Callback Proxy `depositTo`, tx `0xd94f00d9…83c`). Pool initialized at 1:1 with 10e18 full-range liquidity per side (init tx `0x4c4083ec…6b3`).
 
 ## LiveProofPack
 
