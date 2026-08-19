@@ -45,7 +45,7 @@ forge test
 
 Test suite (11/11): mean-reversion boundaries, organic refund, toxic donate, exact-out bond precision, dust-swap revert, synthetic Cron1 aging.
 
-Deployment + live demo runbook: see [`todo.md`](./todo.md). Progress log: [`progress.md`](./progress.md).
+Deployment + live demo runbook: see [`demo.md`](./demo.md) (run commands, expected outcomes, verification, troubleshooting). Full project checklist: [`todo.md`](./todo.md). Progress log: [`progress.md`](./progress.md).
 
 ## Deployed addresses
 
