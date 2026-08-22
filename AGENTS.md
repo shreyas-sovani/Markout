@@ -10,9 +10,9 @@ This file is the canonical source of instructions for any AI coding agent workin
 
 ### Things actively in flux right now
 
-- Code stable: contracts + tests green (`forge test` 11/11), deployed live (addresses in README). Remaining work is operational, tracked in `todo.md` Phase 5–6: live demo runs → LiveProofPack hashes, Reactscan `Active` browser confirmation, Lasna Sourcify retry (endpoint TLS-dead), README LiveProofPack fill-in, demo video, push to public repo for judging.
-- **RSC funding is a live operational risk:** the Cron1 subscription burns ~0.18 REACT/h on Lasna. Topped up 2 REACT on 2026-08-18 (~11 h runway). Before any demo session, check `debt()` and top up (commands in `todo.md` standing reminders).
-- Operator EOA is low on Sepolia ETH (~0.019 SEP) — must be topped up before Phase 5 demo swaps.
+- **BLOCKED on Lasna: RVM never activates.** RSCs deploy and subscribe on RNK, but Reactscan shows 0 RVM/0 RNK transactions and 0 contracts for every RSC deployed (0x6719F2…, 0x7B3378…, 0xEA48ad…). No `react()` execution → no settlement callbacks ever reach Sepolia. Full diagnosis + unblock options in `blockers.md`.
+- Sepolia side fully working: swaps live, bonds escrowed (5 trades awaiting settlement), all contracts verified. Demo runbook ready in `demo.md`.
+- Remaining after unblock: live demo runs → LiveProofPack, README fill-in, video, push (todo.md Phase 5–6).
 - Note: this Section 0 was condensed to a PRD pointer by a human edit during the 2026-08-17 session; the detailed project-context bullet list that used to live here is preserved in git history.
 
 ---
