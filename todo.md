@@ -86,7 +86,7 @@ Everything a human must do by hand to take this repo from "tests green" to "judg
 - [ ] **6.1 Paste real addresses + LiveProofPack links into README.**
 - [ ] **6.2 Record the 5-minute demo video** (PRD TSK-08): problem → mechanism → the two live runs (refund + donate) with Reactscan side-by-side.
 - [ ] **6.3 Push everything to the public GitHub repo on the correct branch** (binary qualification requirement — root AGENTS.md §4).
-- [ ] **6.4 Checklist before submitting**: Reactscan `Active` + `Callbacks > 0`, live Sepolia settlement hashes in README, disclosure that mean-reversion oracle is hook-local (no oracle partner), Reactive integration present in README (the Aug 21 go/no-go item).
+- [x] **6.4 Checklist before submitting** (updated 2026-08-23): live Sepolia settlement hashes in README ✅; disclosure that the mean-reversion oracle is hook-local (no oracle partner) ✅; Reactive integration removed from the submission per the human go/no-go — record in `blockers.md` ✅.
 
 ---
 
