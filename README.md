@@ -1,85 +1,99 @@
 # Markout — The Fair Flow Frontier
 
-A Uniswap v4 hook that protects liquidity providers from MEV and LVR **without delaying trades or trusting external oracles**, settled autonomously by the **Reactive Network**.
+A Uniswap v4 hook that makes liquidity sustainable under toxic flow: swaps fill **immediately at 3 bps**, while a **20 bps input bond** is escrowed and settled by a **mean-reversion oracle** ~21 seconds later. If the pool price reverted toward its pre-swap level, the trade was organic and the bond is **refunded**. If the price sustained — the signature of a single-shot arbitrage against the global market — the bond is **donated to LPs** as a socialized MEV dividend.
 
-Built for the UHI10 Hookathon (Dual-Track: Theme + Reactive Network).
+Built for the UHI10 Hookathon — **Sustainable Liquidity & MEV Protection** track.
 
-## The idea in one paragraph
+## Why mean reversion
 
-Toxic single-shot arbitrage moves an AMM to the global market price and *stays there* — there is no continuation flow to analyze. Organic flow moves the price *away* from the global market, and natural arbitrageurs push it back within seconds. So Markout classifies toxicity by **mean reversion**, not by looking at subsequent swaps in the same pool: every swap fills immediately at 3 bps, but escrows a 20 bps input bond. At a settlement window T (~21 s), a fully on-chain oracle checks the pool price: if it reverted toward the pre-swap price by more than 5 bps, the trade was organic and the bond is **refunded**; if it sustained (or drifted further), the trade was informed price discovery and the bond is **donated to the pool** as a socialized MEV dividend for LPs.
+Toxic single-shot arbitrage moves an AMM to the global market price and *stays there* — there is no continuation flow to analyze. Organic flow moves the price *away* from the global market and natural arbitrageurs push it back within seconds. So toxicity is measured by **what the price did after the swap**, not by who swapped or what an oracle says:
 
-No keepers, no oracles, no delays — settlement timing comes from the Reactive Network's `Cron1` heartbeat event.
+- **Informed (toxic) flow** — price sustains at the new level; no rational actor arbitrages it back. Bond → LPs.
+- **Uninformed (organic) flow** — price reverts toward the pre-swap level as arbitrageurs close the gap. Bond → trader.
 
-## Architecture
+## How it works
 
 ```
-  Sepolia (11155111)                         Reactive Lasna (5318007)
- ┌──────────────────────────┐               ┌─────────────────────────────┐
- │ PoolManager + MarkoutHook│  SwapBonded   │ MarkoutReactive (RSC)       │
- │  beforeSwap: store P_pre │──────────────▶│  queue trade, age 3 Cron1   │
- │  afterSwap: 20bps bond   │               │  ticks (~21s)               │
- │   escrow + 6909 receipt  │               │        │ emits Callback     │
- │                          │               └────────┼────────────────────┘
- │ MarkoutExecutor          │  settleMarkout(rvm_id, tradeId)             │
- │  ← Callback Proxy        │◀──────────────────────┘ (1M gas, RVM-signed)
- │   → hook.settle(tradeId) │
- │ MarkoutHook.settle:      │
- │   refund trader   ── or ──▶ poolManager.donate() → LPs
- └──────────────────────────┘
+                swap (fills immediately, 3 bps)
+  trader ─────────────────────────────────────────▶ Markout pool (Uniswap v4)
+    │                                                     │
+    │  20 bps input bond escrowed (balanceDelta-derived,  │
+    │  never slot0); ERC-6909 receipt minted               │
+    │                                                     ▼
+    │                            time-weighted price (hook accumulator,
+    │                              poked by swaps / anyone / settlement)
+    │                                                     │
+    │                        T = 21 s elapsed? ── anyone calls settle()
+    │                                                     │
+    ◀──── bond REFUNDED ◀─── reverted > 5 bps ──┤   └── sustained ──▶ bond DONATED
+                                                                      to in-range LPs
 ```
 
-| Contract | Chain | Role |
-| --- | --- | --- |
-| `src/MarkoutEngine.sol` | — (pure) | Mean-reversion classifier: `decide(P_pre, P_post, P_T)` in price-space Q128.128, strict >5 bps threshold. |
-| `src/MarkoutHook.sol` | Sepolia | Bonds 20 bps of the exact `balanceDelta`-derived `amountIn` (never `slot0`), escrows via `take`, mints an ERC-6909 receipt, emits `SwapBonded`; `settle()` refunds or `donate()`s. |
-| `src/MarkoutReactive.sol` | Lasna | Subscribes to `SwapBonded` (Sepolia) + `Cron1` (Lasna system contract); emits settlement `Callback`s after 3 ticks. |
-| `src/MarkoutExecutor.sol` | Sepolia | Receives callbacks; `settleMarkout(address rvm_id, bytes32 tradeId)` guarded by RVM-ID injection **and** the Sepolia Callback Proxy sender check. |
-| `src/MarkoutRouter.sol` | Sepolia | Reference router: settles the swap, then pays the hook's bond debt via `settleFor`. Integrating routers must do the same. |
+- **Bond precision** — the bond is exactly 20 bps of the realized `amountIn` taken from the post-swap `balanceDelta`. Works identically for exact-in and exact-out; `slot0` is never used for sizing. Dust swaps (bond would round to 0) revert with `SwapTooSmall`.
+- **Mean-reversion oracle** — the hook keeps its own time-weighted tick accumulator per pool (Uniswap-V2-style), advanced on every swap, every permissionless `poke()`, and at settlement. The settlement price P_T is the average tick over the window, so intra-block spot games between pokes are invisible and only genuinely-sustained or genuinely-reverted prices decide the bond. The threshold is a strict 5 bps in price space.
+- **Permissionless settlement** — `settle(tradeId)` is callable by **anyone** once the 21 s window closes (`SettlementWindowOpen` before that; `AlreadySettled` after). Outcome depends only on pool state, so adversarial or self-interested settles are harmless. A convenience keeper (`script/keeper.sh`) pokes the oracle and settles due trades; correctness never depends on it.
+- **Immediate fill** — no queues, no delays, no external oracles, no partner dependencies. Everything is hook-local.
 
-## Getting started
+## Contracts
+
+| Contract | Purpose |
+| --- | --- |
+| `src/MarkoutHook.sol` | The v4 hook: bond escrow (`take`), ERC-6909 receipts, TWAP accumulator, permissionless settlement, refund / donate paths. |
+| `src/MarkoutEngine.sol` | Pure mean-reversion classifier: `decide(P_pre, P_post, P_T)` in Q128.128 price space, strict 5 bps threshold. |
+| `src/MarkoutRouter.sol` | Reference router: settles the swap and pays the hook's bond debt via `settleFor`. Integrating routers must do the same. |
+| `src/BaseHook.sol` | Minimal IHooks base with no-op defaults (v4-periphery v4.0.0 ships none). |
+| `script/keeper.sh` | Optional keeper: pokes the oracle and settles due trades. |
+
+## Tests — 14/14 passing
 
 ```shell
-forge build
-forge test
+forge build && forge test
 ```
 
-Test suite (11/11): mean-reversion boundaries, organic refund, toxic donate, exact-out bond precision, dust-swap revert, synthetic Cron1 aging.
+Engine (6): up/down reversion refunds, sustain donates, 4-vs-6 bps price-space boundary, zero-impact donates.
+Integration (8): `organicQuiet_refundsBond`, `arbSustains_donates`, `exactOut_chargesInputBondAndFillsOutput`, `swapTooSmall_reverts`, `settleWindowOpen_reverts`, `settle_replay_reverts`, `spotGames_ignored` (intra-block manipulation invisible to the TWAP), `twap_honorsSustainedReversion`.
 
-Deployment + live demo runbook: see [`demo.md`](./demo.md) (run commands, expected outcomes, verification, troubleshooting). Full project checklist: [`todo.md`](./todo.md). Progress log: [`progress.md`](./progress.md).
+## Deployed & proven on Sepolia (all source-verified on Etherscan)
 
-## Deployed addresses
+| Contract | Address |
+| --- | --- |
+| MarkoutHook | [0xF51b4DD1e87D786fE7F3dFAAD29b754F11CdC0c0](https://sepolia.etherscan.io/address/0xf51b4dd1e87d786fe7f3dfaad29b754f11cdc0c0) |
+| MarkoutRouter | [0x9640D3679c4440Cc7B1d56D7617f078c196BA7cC](https://sepolia.etherscan.io/address/0x9640d3679c4440cc7b1d56d7617f078c196ba7cc) |
+| PoolManager | [0x160fF6871308D84089284A6aA1D357334575b03C](https://sepolia.etherscan.io/address/0x160ff6871308d84089284a6aa1d357334575b03c) |
+| Demo token0 | [0x3b05a2fF8351CA6D8782E892a55e616A7F41E6A8](https://sepolia.etherscan.io/address/0x3b05a2ff8351ca6d8782e892a55e616a7f41e6a8) |
+| Demo token1 | [0x94E7F1324D87BA28D8Fc556BD5C9be9E598680c0](https://sepolia.etherscan.io/address/0x94e7f1324d87ba28d8fc556bd5c9be9e598680c0) |
 
-Deployed 2026-08-18 (see `todo.md` Phase 2–4 and `progress.md`):
+### LiveProofPack — real end-to-end run (2026-08-23)
 
-| Contract | Chain | Address |
-| --- | --- | --- |
-| MarkoutHook | Sepolia | [0x1Db65C7eFd46A7D663D05C7Bc61Bb88f116000C0](https://sepolia.etherscan.io/address/0x1db65c7efd46a7d663d05c7bc61bb88f116000c0) |
-| MarkoutExecutor | Sepolia | [0x1D054cd08CD007748602B7C116042f4c0534E1dD](https://sepolia.etherscan.io/address/0x1d054cd08cd007748602b7c116042f4c0534e1dd) |
-| MarkoutRouter | Sepolia | [0x63634289880D5aB9D74f43Fa7DC196C1F0605989](https://sepolia.etherscan.io/address/0x63634289880d5ab9d74f43fa7dc196c1f0605989) |
-| PoolManager | Sepolia | [0x7A1087753d33B928c2FEa8eFaFbC23BdDcb4cc53](https://sepolia.etherscan.io/address/0x7a1087753d33b928c2fea8efafbc23bddcb4cc53) |
-| Demo token0 | Sepolia | [0x91C7d1f821B30B76e6E47fE51243B75fb2F5938e](https://sepolia.etherscan.io/address/0x91c7d1f821b30b76e6e47fe51243b75fb2f5938e) |
-| Demo token1 | Sepolia | [0x144ABA252550ea7fBE7c487B8d153815097a1F15](https://sepolia.etherscan.io/address/0x144aba252550ea7fbe7c487b8d153815097a1f15) |
-| MarkoutReactive | Reactive Lasna | [0x6719F298F544c688999819d13A34E871E723f4d9](https://lasna.reactscan.net/address/0x6719F298F544c688999819d13A34E871E723f4d9) |
+Organic flow → **Refund**:
 
-The RSC is funded (2 REACT via system `depositTo`; note the Cron1 subscription burns ~0.18 REACT/h — see `todo.md` standing reminders) and the Sepolia executor is funded (0.02 SEP via Callback Proxy `depositTo`, tx `0xd94f00d9…83c`). Pool initialized at 1:1 with 10e18 full-range liquidity per side (init tx `0x4c4083ec…6b3`). All Sepolia contracts are source-verified on Etherscan.
+1. Organic buy (bond 2e15 escrowed): [`0x5d3a3e77…ebc9d`](https://sepolia.etherscan.io/tx/0x5d3a3e77a27472d4f1172663d0ef4b53745223d34dc76d214033985b7a1ebc9d)
+2. Arbitrageur reverts the price: [`0x6ffa757c…191a5`](https://sepolia.etherscan.io/tx/0x6ffa757c2380aaf2325498d83786d6f4b827ea27de6f04afe2ab223674b191a5)
+3. Permissionless settle → `Settled(outcome=Refund)`, bond returned to the trader: [`0x567fa241…88ac9b`](https://sepolia.etherscan.io/tx/0x567fa24109abe910b134fc5c58a78d41e2a040cf51b5265abc9c71ec9c88ac9b)
 
-## LiveProofPack
+Toxic flow → **Donate** (the arbitrageur's own reversal trade, left unreversed):
 
-_To be filled from the live demo runs (todo.md Phase 5):_
+4. Bonded in tx 2 above; price sustained → settle → `Settled(outcome=Donate)` + `Donate` on the PoolManager, bond socialized to LPs: [`0xac947b0f…d16389`](https://sepolia.etherscan.io/tx/0xac947b0fe194268cbddf1622a954d216e897413edad6bef168a8637fb9d16389)
 
-- Organic trade: `SwapBonded` → `Callback` → `Settled(Refund)` hashes — _TBD_
-- Toxic trade: `SwapBonded` → `Callback` → `Settled(Donate)` hashes — _TBD_
-- Reactscan: `Active` status + `Callbacks > 0` — _TBD_
+Accounting checks out exactly: trader balance +2e15 on refund, hook escrow 0 after both settles, PoolManager holds the donated bond.
 
-## Disclosures
+## Running a demo
 
-- The toxicity oracle is **entirely hook-local**: it compares the pool's own `sqrtPriceX96` before the swap, after the swap, and at window T. No Chainlink, no Pyth, no partner oracle.
-- Settlement timing depends on the Reactive Network `Cron1` system event (~7 s/block on Reactive Lasna; 3 ticks ≈ 21 s).
+Full runbook with commands, expected outcomes, and troubleshooting: [`demo.md`](./demo.md).
+
+## Design notes & honest limitations
+
+- The toxicity oracle is **entirely hook-local**: pre/post swap prices plus the hook's own time-weighted accumulator. No Chainlink, no Pyth, no off-chain component.
+- The 21 s window and 5 bps threshold are constants tuned for the demo; both are single-line changes.
+- Settlement price is a time-weighted average with attribution-at-update semantics: between two pokes, elapsed time is attributed to the price observed at the next update. Keeper cadence bounds the misattribution window (the on-chain settle and every swap also poke).
+- The bond receipt is a minimal ERC-6909 ledger (transfer + operator approval) minted per trade as an on-chain record; it is not burned on settlement.
+- Router trust: any router may swap through the pool; the trader identity it declares in `hookData` only affects where the receipt and any refund are sent, and the router's swapper always pays the bond. A production deployment would allowlist routers.
+- An earlier iteration settled via the Reactive Network; that integration was parked after the network failed to activate any RVM for our deployer across three contracts (see `blockers.md` — Sepolia side worked throughout). The permissionless design shipped here is strictly simpler and has no external network dependency.
 
 ## Repository layout
 
 - `src/` — protocol contracts (see `src/AGENTS.md`)
 - `test/` — Foundry suite (see `test/AGENTS.md`)
-- `docs/prd/markout.md` — product requirements document
-- `todo.md` — manual end-to-end runbook
-- `progress.md` — build log
+- `script/` — deployment + keeper (see `script/AGENTS.md`)
+- `docs/prd/markout.md` — original product requirements document
+- `demo.md` — live demo runbook · `progress.md` — build log · `blockers.md` — parked Reactive investigation

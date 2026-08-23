@@ -10,16 +10,20 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 import {BaseHook} from "./BaseHook.sol";
 import {MarkoutEngine} from "./MarkoutEngine.sol";
 
 /// @title Markout — autonomous MEV/LVR protection hook for Uniswap v4.
-/// @notice Fills swaps immediately at the pool's advertised 3 bps fee while
-/// escrowing a 20 bps input bond. Settlement (refund vs donate) is decided by
-/// the MarkoutEngine mean-reversion oracle at window T, driven by a Reactive
-/// Network callback that lands on the executor, which calls `settle`.
+/// @notice Swaps fill immediately at the pool's advertised 3 bps fee while a
+/// 20 bps input bond is escrowed. After a settlement window T (21 s), the
+/// mean-reversion oracle decides the bond's fate using a hook-maintained
+/// time-weighted price: reverted toward the pre-swap price by more than 5 bps
+/// (benign flow) → the bond is refunded to the trader; sustained or drifted
+/// (informed flow) → the bond is donated to the pool's LPs. Settlement is
+/// permissionless after T and needs no keeper, oracle, or delayed execution.
 contract MarkoutHook is BaseHook, IUnlockCallback {
     using StateLibrary for IPoolManager;
     using CurrencyLibrary for Currency;
@@ -28,6 +32,9 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     uint256 public constant SWAP_FEE = 300; // 3 bps, set at pool initialization
     uint256 public constant BOND_BPS = 20;
     uint256 public constant BPS_DENOMINATOR = 10_000;
+    /// @notice Settlement window T. 3 Reactive-Cron-style ticks in the
+    /// original design; now simply an on-chain timestamp delay.
+    uint256 public constant SETTLEMENT_DELAY = 21 seconds;
 
     enum Outcome {
         None,
@@ -42,6 +49,9 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         uint256 bondAmount;
         uint160 sqrtPre;
         uint160 sqrtPost;
+        uint32 bondTime;
+        uint32 settleAfter;
+        int56 tickCumulativeAtBond;
         Outcome outcome;
     }
 
@@ -51,19 +61,47 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     event Settled(bytes32 indexed tradeId, uint8 outcome, uint160 sqrtAtSettlement, uint256 bondAmount);
 
     error SwapTooSmall();
-    error NotExecutor();
+    error SettlementWindowOpen(uint256 settleAfter, uint256 now);
+    error UnknownTrade();
     error AlreadySettled();
     error NotPoolManager();
+    error ZeroObservation();
 
     IPoolManager public immutable poolManager;
-    address public immutable executor;
 
     mapping(bytes32 tradeId => Trade) public trades;
     bytes32 public lastTradeId;
     uint256 private tradeNonce;
 
-    // Transient slot holding P_pre between beforeSwap and afterSwap.
-    uint256 private constant PRE_SLOT = uint256(keccak256("markout.hook.sqrtPre"));
+    // ---------------------------------------------------------------------------
+    // Hook-maintained time-weighted price (Uniswap-V2-style tick accumulator,
+    // kept per pool). Updated on every swap, on every poke(), and at
+    // settlement. Anyone may poke(); keepers keep the cadence between swaps so
+    // that the window average is expensive to manipulate.
+    // ---------------------------------------------------------------------------
+
+    struct Observation {
+        uint32 lastTimestamp;
+        int56 tickCumulative;
+    }
+
+    mapping(PoolId poolId => Observation) public observations;
+
+    /// @notice Bring the pool's tick accumulator up to the current block time.
+    /// Permissionless: swaps, pokes, and settlements all call it.
+    function poke(PoolId poolId) public returns (int56 tickCumulative) {
+        Observation storage obs = observations[poolId];
+        (, int24 tick,,) = poolManager.getSlot0(poolId);
+        uint32 timestamp = uint32(block.timestamp);
+        if (obs.lastTimestamp == 0) {
+            obs.lastTimestamp = timestamp;
+            obs.tickCumulative = 0;
+        } else if (timestamp > obs.lastTimestamp) {
+            obs.tickCumulative += int56(tick) * int56(uint56(timestamp - obs.lastTimestamp));
+            obs.lastTimestamp = timestamp;
+        }
+        return obs.tickCumulative;
+    }
 
     // ---------------------------------------------------------------------------
     // Minimal ERC-6909 bond receipt ledger (hook-minted, id = uint256(tradeId)).
@@ -75,9 +113,8 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     mapping(address => mapping(uint256 => uint256)) public balanceOf;
     mapping(address => mapping(address => bool)) public operatorApproval;
 
-    constructor(IPoolManager _poolManager, address _executor) {
+    constructor(IPoolManager _poolManager) {
         poolManager = _poolManager;
-        executor = _executor;
     }
 
     // ---------------------------------------------------------------------------
@@ -137,6 +174,9 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         uint256 bond = (amountIn * BOND_BPS) / BPS_DENOMINATOR;
         if (bond == 0) revert SwapTooSmall();
 
+        // Checkpoint the TWAP accumulator at bond time.
+        int56 tickCumAtBond = poke(key.toId());
+
         uint160 sqrtPre = _takePre(key.toId(), sender);
         (uint160 sqrtPost,,,) = poolManager.getSlot0(key.toId());
 
@@ -153,6 +193,9 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
             bondAmount: bond,
             sqrtPre: sqrtPre,
             sqrtPost: sqrtPost,
+            bondTime: uint32(block.timestamp),
+            settleAfter: uint32(block.timestamp + SETTLEMENT_DELAY),
+            tickCumulativeAtBond: tickCumAtBond,
             outcome: Outcome.None
         });
 
@@ -164,15 +207,28 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     }
 
     // ---------------------------------------------------------------------------
-    // Settlement (called by the Reactive Network executor)
+    // Settlement — permissionless after the window closes
     // ---------------------------------------------------------------------------
 
+    /// @notice Settle a bonded trade. Callable by anyone once the window has
+    /// elapsed; the outcome depends only on pool state, so an early or
+    /// adversarial settle is impossible and a self-interested settle is
+    /// harmless. P_T is the time-weighted average tick over the window, taken
+    /// from the hook's own accumulator (pool-local, no external oracle).
     function settle(bytes32 tradeId) external {
-        if (msg.sender != executor) revert NotExecutor();
         Trade storage trade = trades[tradeId];
+        if (trade.settleAfter == 0) revert UnknownTrade();
         if (trade.outcome != Outcome.None) revert AlreadySettled();
+        if (block.timestamp < trade.settleAfter) revert SettlementWindowOpen(trade.settleAfter, block.timestamp);
 
-        (uint160 sqrtT,,,) = poolManager.getSlot0(trade.key.toId());
+        // Bring the accumulator to now and average over the actual window.
+        int56 tickCumNow = poke(trade.key.toId());
+        uint32 elapsed = uint32(block.timestamp) - trade.bondTime;
+        if (elapsed == 0) revert ZeroObservation();
+        int256 avgTick = int256(tickCumNow - trade.tickCumulativeAtBond) / int256(uint256(elapsed));
+        require(avgTick >= int256(int24(type(int24).min)) && avgTick <= int256(int24(type(int24).max)), "tick oob");
+        uint160 sqrtT = TickMath.getSqrtPriceAtTick(int24(avgTick));
+
         bool refund = MarkoutEngine.decide(trade.sqrtPre, trade.sqrtPost, sqrtT);
         trade.outcome = refund ? Outcome.Refund : Outcome.Donate;
 
@@ -180,7 +236,7 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
             // Return the escrowed bond to the trader.
             trade.bondCurrency.transfer(trade.trader, trade.bondAmount);
         } else {
-            // Socialize the bond: pay it into the pool and donate to LPs.
+            // Socialize the bond: pay it into the pool and donate it to LPs.
             poolManager.unlock(abi.encode(tradeId));
         }
 
@@ -208,6 +264,8 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     // ---------------------------------------------------------------------------
     // Transient P_pre passing between beforeSwap and afterSwap
     // ---------------------------------------------------------------------------
+
+    uint256 private constant PRE_SLOT = uint256(keccak256("markout.hook.sqrtPre"));
 
     function _preSlot(PoolId poolId, address sender) private pure returns (bytes32 slot) {
         slot = keccak256(abi.encode(PRE_SLOT, PoolId.unwrap(poolId), sender));

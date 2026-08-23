@@ -1,5 +1,7 @@
 # AGENTS.md — script/
 
+> 2026-08-23: `Deploy.Lasna.s.sol` deleted with the Reactive removal. `keeper.sh` added. `Deploy.Sepolia.s.sol` updated for the executor-less hook constructor. Entries below about Lasna are historical record.
+
 ## Ownership
 
 Deployment entry points for the Markout stack: one script per chain.

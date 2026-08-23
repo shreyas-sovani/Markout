@@ -25,9 +25,15 @@ If any contract here is wrong, traders lose bonds incorrectly, LPs lose the MEV 
 
 ## Current State
 
-Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). All behavior covered by `test/` — 11/11 passing. Deployed live 2026-08-18 (Sepolia stack + Lasna RSC, addresses in README; all Sepolia sources Etherscan-verified). Contracts themselves unchanged since 2026-08-17.
+Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). 14/14 tests passing. V2 stack (permissionless settlement + TWAP) deployed live on Sepolia 2026-08-23 and live-proven end-to-end (refund + donate hashes in README); all sources Etherscan-verified. Reactive contracts deleted from this directory.
 
 ## Decision Log
+
+### 2026-08-23 — permissionless settlement + hook-native TWAP (Reactive removal)
+- **Change**: `MarkoutHook` rewritten: executor gate removed; `settle(bytes32)` is permissionless after a 21 s window (`SettlementWindowOpen` before, `AlreadySettled` after, `UnknownTrade` guard); P_T is now the time-weighted average tick over the window from a hook-maintained per-pool accumulator (`Observation{lastTimestamp, tickCumulative}`, advanced by swaps, public `poke()`, and settle itself); Trade struct gained `bondTime`/`settleAfter`/`tickCumulativeAtBond`. Constructor is now `(IPoolManager)` only. `MarkoutReactive.sol`, `MarkoutExecutor.sol`, `InstantSettleReactive.sol` deleted.
+- **Reasoning**: Reactive Network is not judging this cohort and its Lasna RVM never activated for our deployer (see `blockers.md`); the timestamp gate replaces the Cron1 clock on-chain. TWAP replaces spot-at-settle because a thin pool's price can be shoved across the 5 bps band for one instant cheaply — the window average makes that cost scale with holding time (see `test_spotGames_ignored` and `test_twap_honorsSustainedReversion`). v4.0.0 core ships no oracle, so the hook accumulates ticks itself.
+- **Rejected alternative(s)**: spot-at-settle (cheap single-instant griefing); avg-vs-pre threshold (organic refunds become sensitive to sub-second reversion delay); keeping Reactive for narrative (unbounded debug against dead infra, and not judged).
+- **Task/session**: pivot session 2026-08-23 after human confirmed Reactive is not a sponsor.
 
 ### 2026-08-17 — initial implementation of all five contracts
 - **Change**: MarkoutEngine, BaseHook, MarkoutHook, MarkoutRouter, MarkoutReactive, MarkoutExecutor written from scratch; Foundry scaffolded with v4-core v4.0.0, v4-periphery, reactive-lib v0.2.0.

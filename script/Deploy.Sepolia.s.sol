@@ -16,25 +16,21 @@ import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
 
 import {MarkoutHook} from "../src/MarkoutHook.sol";
 import {MarkoutRouter} from "../src/MarkoutRouter.sol";
-import {MarkoutExecutor} from "../src/MarkoutExecutor.sol";
 import {MockERC20} from "../test/mocks/MockERC20.sol";
 
 /// @notice Deploys the Markout stack to Sepolia: two demo tokens, PoolManager,
-/// LP helper, MarkoutHook (CREATE2-mined permission address), MarkoutExecutor
-/// (CREATE1 at a nonce-predicted address, mirroring test setUp), MarkoutRouter,
+/// LP helper, MarkoutHook (CREATE2-mined permission address), MarkoutRouter,
 /// then initializes the 3 bps pool at 1:1 and seeds full-range liquidity.
 contract DeploySepolia is Script {
     using CurrencyLibrary for Currency;
 
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
-    address internal constant SEPOLIA_CALLBACK_PROXY = 0xc9f36411C9897e7F959D99ffca2a0Ba7ee0D7bDA;
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
     uint24 internal constant FEE = 300; // 3 bps
     int24 internal constant TICK_SPACING = 60;
     uint128 internal constant LP_LIQUIDITY = 10e18; // 10 tokens per side at 1:1
     uint256 internal constant MINT_AMOUNT = 100e18;
-
 
     function run() public {
         uint256 pk = vm.envUint("ACC3_PRIV_KEY");
@@ -49,22 +45,14 @@ contract DeploySepolia is Script {
         PoolManager manager = new PoolManager(msg.sender);
         PoolModifyLiquidityTest lpRouter = new PoolModifyLiquidityTest(IPoolManager(address(manager)));
 
-        // Executor deploys via CREATE at the EOA's next nonce (predicted), the
-        // hook via CREATE2 with the mined salt — same trick as test setUp. If
-        // the EOA nonce moves between simulation and broadcast, the require
-        // below fails safely and the script can simply be rerun.
-        address predictedExecutor = vm.computeCreateAddress(msg.sender, vm.getNonce(msg.sender));
         (address predictedHook, bytes32 minedSalt) = HookMiner.find(
             CREATE2_DEPLOYER,
             uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG),
             type(MarkoutHook).creationCode,
-            abi.encode(address(manager), predictedExecutor)
+            abi.encode(address(manager))
         );
 
-        MarkoutExecutor executor = new MarkoutExecutor(SEPOLIA_CALLBACK_PROXY, predictedHook);
-        require(address(executor) == predictedExecutor, "executor nonce prediction failed");
-
-        MarkoutHook hook = new MarkoutHook{salt: minedSalt}(IPoolManager(address(manager)), address(executor));
+        MarkoutHook hook = new MarkoutHook{salt: minedSalt}(IPoolManager(address(manager)));
         require(address(hook) == predictedHook, "hook landed at wrong address");
 
         MarkoutRouter router = new MarkoutRouter(IPoolManager(address(manager)), address(hook));
@@ -102,7 +90,6 @@ contract DeploySepolia is Script {
         console2.log("poolManager:", address(manager));
         console2.log("lpRouter:", address(lpRouter));
         console2.log("hook:", address(hook));
-        console2.log("executor:", address(executor));
         console2.log("router:", address(router));
     }
 }

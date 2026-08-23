@@ -1,5 +1,9 @@
 # Blockers
 
+## RESOLVED 2026-08-23 — Reactive dependency dropped
+
+Reactive Network is not a sponsor/judge of this cohort. The Lasna RVM-never-activates issue below is therefore **moot for the submission**: the hook now settles permissionlessly on-chain after a 21 s window (see README), the Reactive contracts were removed from the tree (preserved in git history), and the full demo — including live Refund and Donate settlements with real hashes — runs on Sepolia alone. The investigation below is kept for the record.
+
 ## Sepolia side: none
 
 Pool, hook, router, executor live and verified. Swaps work, bonds escrow correctly. 5 trades bonded and awaiting settlement.

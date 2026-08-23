@@ -2,7 +2,7 @@
 
 Everything a human must do by hand to take this repo from "tests green" to "judged submission". Work top to bottom. Check items off as you go. Commands assume Foundry installed and run from repo root.
 
-**Status 2026-08-18: Phases 0–4 COMPLETE (see `progress.md` + README address table). Start at Phase 5.**
+**Status 2026-08-23: SUPERSEDED for the Reactive phases.** Reactive integration removed (not judged; see `blockers.md`). Current demo = pure Sepolia permissionless flow — use `demo.md` and the LiveProofPack in README (already executed live). Remaining: demo video, final submission checklist below.
 
 ---
 

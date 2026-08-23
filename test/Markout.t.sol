@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
-import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
@@ -12,24 +12,22 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
 import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
 
 import {MarkoutHook} from "../src/MarkoutHook.sol";
 import {MarkoutRouter} from "../src/MarkoutRouter.sol";
-import {MarkoutExecutor} from "../src/MarkoutExecutor.sol";
-import {MarkoutReactive} from "../src/MarkoutReactive.sol";
-import {IReactive} from "reactive-lib/src/interfaces/IReactive.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 contract MarkoutTest is Test {
     using CurrencyLibrary for Currency;
     using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
     uint24 internal constant FEE = 300; // 3 bps
     int24 internal constant TICK_SPACING = 60;
-    address internal constant SEPOLIA_CALLBACK_PROXY = 0xc9f36411C9897e7F959D99ffca2a0Ba7ee0D7bDA;
 
     MockERC20 internal tokenA;
     MockERC20 internal tokenB;
@@ -40,12 +38,12 @@ contract MarkoutTest is Test {
     PoolModifyLiquidityTest internal lpRouter;
     MarkoutHook internal hook;
     MarkoutRouter internal router;
-    MarkoutExecutor internal executor;
 
     PoolKey internal key;
 
     address internal alice = makeAddr("alice");
     address internal arber = makeAddr("arber");
+    address internal settler = makeAddr("settler"); // anyone
 
     function setUp() public {
         tokenA = new MockERC20();
@@ -57,18 +55,13 @@ contract MarkoutTest is Test {
         manager = new PoolManager(address(this));
         lpRouter = new PoolModifyLiquidityTest(IPoolManager(address(manager)));
 
-        // Executor deploys first (CREATE1 at a predictable address), hook second
-        // (CREATE2 with a mined salt), so both immutables can reference each other.
-        address predictedExecutor = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         (address hookAddress, bytes32 salt) = HookMiner.find(
             address(this),
             uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG),
             type(MarkoutHook).creationCode,
-            abi.encode(address(manager), predictedExecutor)
+            abi.encode(address(manager))
         );
-
-        executor = new MarkoutExecutor(SEPOLIA_CALLBACK_PROXY, hookAddress);
-        hook = new MarkoutHook{salt: salt}(IPoolManager(address(manager)), address(executor));
+        hook = new MarkoutHook{salt: salt}(IPoolManager(address(manager)));
         assertEq(address(hook), hookAddress, "hook address mining failed");
 
         router = new MarkoutRouter(IPoolManager(address(manager)), address(hook));
@@ -89,7 +82,10 @@ contract MarkoutTest is Test {
         lpRouter.modifyLiquidity(
             key,
             IPoolManager.ModifyLiquidityParams({
-                tickLower: -887220, tickUpper: 887220, liquidityDelta: 1e18, salt: bytes32(0)
+                tickLower: TickMath.minUsableTick(TICK_SPACING),
+                tickUpper: TickMath.maxUsableTick(TICK_SPACING),
+                liquidityDelta: 1e18,
+                salt: bytes32(0)
             }),
             new bytes(0)
         );
@@ -120,9 +116,9 @@ contract MarkoutTest is Test {
         );
     }
 
-    function _settle(bytes32 tradeId) internal {
-        vm.prank(SEPOLIA_CALLBACK_PROXY);
-        executor.settleMarkout(address(this), tradeId);
+    function _outcome(bytes32 tradeId) internal view returns (MarkoutHook.Outcome) {
+        (,,,,,,,,, MarkoutHook.Outcome outcome) = hook.trades(tradeId);
+        return outcome;
     }
 
     // -------------------------------------------------------------------------
@@ -141,21 +137,24 @@ contract MarkoutTest is Test {
 
         bytes32 tradeId = hook.lastTradeId();
 
-        // Arbitrageur reverts the price behind the organic trader.
+        // Arbitrageur reverts the price behind the organic trader (same block).
         _swap(arber, false, -2e17);
 
-        uint256 aliceMid = currency0.balanceOf(alice);
-        _settle(tradeId);
+        // Window elapses with the reverted price in force.
+        vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
 
-        (,,,,,, MarkoutHook.Outcome outcome) = hook.trades(tradeId);
-        assertEq(uint8(outcome), uint8(MarkoutHook.Outcome.Refund), "expected refund");
+        uint256 aliceMid = currency0.balanceOf(alice);
+        vm.prank(settler); // permissionless: any third party settles
+        hook.settle(tradeId);
+
+        assertEq(uint8(_outcome(tradeId)), uint8(MarkoutHook.Outcome.Refund), "expected refund");
         assertEq(currency0.balanceOf(alice), aliceMid + expectedBond, "bond not refunded");
         assertEq(currency0.balanceOf(address(hook)), 0, "hook must release currency0 escrow");
         assertEq(alice0Before - currency0.balanceOf(alice), amountIn, "net cost must be only amountIn");
     }
 
     // -------------------------------------------------------------------------
-    // arbSustains_donates: single-shot arb, no continuation => Donate
+    // arbSustains_donates: single-shot arb, no reversion => Donate
     // -------------------------------------------------------------------------
 
     function test_arbSustains_donates() public {
@@ -167,15 +166,97 @@ contract MarkoutTest is Test {
         uint256 alice0 = currency0.balanceOf(alice);
         uint256 pool0 = currency0.balanceOf(address(manager));
 
+        vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
+
         vm.expectEmit(true, true, true, true, address(manager));
         emit IPoolManager.Donate(key.toId(), address(hook), expectedBond, uint256(0));
-        _settle(tradeId);
+        vm.prank(settler);
+        hook.settle(tradeId);
 
-        (,,,,,, MarkoutHook.Outcome outcome) = hook.trades(tradeId);
-        assertEq(uint8(outcome), uint8(MarkoutHook.Outcome.Donate), "expected donate");
+        assertEq(uint8(_outcome(tradeId)), uint8(MarkoutHook.Outcome.Donate), "expected donate");
         assertEq(currency0.balanceOf(alice), alice0, "toxic trader keeps nothing");
         assertEq(currency0.balanceOf(address(manager)), pool0 + expectedBond, "pool must receive the bond");
         assertEq(currency0.balanceOf(address(hook)), 0, "hook holds no escrow after donate");
+    }
+
+    // -------------------------------------------------------------------------
+    // settleWindowOpen_reverts: nobody, not even the trader, settles early
+    // -------------------------------------------------------------------------
+
+    function test_settleWindowOpen_reverts() public {
+        _swap(alice, true, -2e17);
+        bytes32 tradeId = hook.lastTradeId();
+
+        vm.prank(settler);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MarkoutHook.SettlementWindowOpen.selector, uint256(trades_settleAfter(tradeId)), block.timestamp
+            )
+        );
+        hook.settle(tradeId);
+    }
+
+    // -------------------------------------------------------------------------
+    // settle_replay_reverts: idempotent settlement
+    // -------------------------------------------------------------------------
+
+    function test_settle_replay_reverts() public {
+        _swap(alice, true, -2e17);
+        bytes32 tradeId = hook.lastTradeId();
+        vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
+        hook.settle(tradeId);
+        vm.expectRevert(MarkoutHook.AlreadySettled.selector);
+        hook.settle(tradeId);
+    }
+
+    // -------------------------------------------------------------------------
+    // spotGames_ignored: intra-block price games between pokes are invisible
+    // to the time-weighted oracle. A toxic trade stays toxic even if an
+    // attacker spikes the spot price and restores it within one block.
+    // -------------------------------------------------------------------------
+
+    function test_spotGames_ignored() public {
+        // Toxic trade: pushes price down and sustains.
+        _swap(alice, true, -2e17);
+        bytes32 tradeId = hook.lastTradeId();
+
+        // Mid-window: the accumulator is poked (keeper cadence), then the
+        // attacker plays a micro spot-game — a tiny shove and restore inside
+        // one block. Both swaps poke at the same timestamp, so no time is
+        // ever accumulated at the shoved price, and the round-trip residual
+        // is far below the 5 bps threshold.
+        vm.warp(block.timestamp + 10);
+        hook.poke(key.toId());
+        _swap(arber, false, -1e13); // micro shove toward pre
+        _swap(arber, true, -1e13); // and straight back
+
+        vm.warp(block.timestamp + hook.SETTLEMENT_DELAY());
+        vm.prank(settler);
+        hook.settle(tradeId);
+
+        assertEq(
+            uint8(_outcome(tradeId)), uint8(MarkoutHook.Outcome.Donate), "intra-block spot game must not flip outcome"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // twap_honorsSustainedReversion: genuine reversion held across the window
+    // flips the outcome to Refund.
+    // -------------------------------------------------------------------------
+
+    function test_twap_honorsSustainedReversion() public {
+        _swap(alice, true, -2e17);
+        bytes32 tradeId = hook.lastTradeId();
+
+        // Reversion happens early and is held for the whole window.
+        vm.warp(block.timestamp + 1);
+        _swap(arber, false, -2e17);
+        vm.warp(block.timestamp + hook.SETTLEMENT_DELAY());
+
+        vm.prank(settler);
+        hook.settle(tradeId);
+
+        assertEq(uint8(_outcome(tradeId)), uint8(MarkoutHook.Outcome.Refund), "held reversion must refund");
     }
 
     // -------------------------------------------------------------------------
@@ -214,60 +295,8 @@ contract MarkoutTest is Test {
         );
     }
 
-    // -------------------------------------------------------------------------
-    // reactive_cron_callback: synthetic Cron1 aging emits Callback after 3 ticks
-    // -------------------------------------------------------------------------
-
-    function test_reactive_cron_callback() public {
-        MarkoutReactive rsc = new MarkoutReactive(address(hook), address(executor));
-
-        bytes32 tradeId = bytes32(uint256(42));
-        rsc.react(
-            _log(
-                11155111,
-                address(hook),
-                0x0d39a536aa19156d3df8b040edbfea1a971c7c4f0ce06729f3af7e589d7e6a14,
-                uint256(tradeId)
-            )
-        );
-        assertEq(rsc.queueLength(), 1, "trade not queued");
-
-        uint256 cronTopic = 0xf02d6ea5c22a71cffe930a4523fcb4f129be6c804db50e4202fb4e0b07ccb514;
-        IReactive.LogRecord memory cron = _log(5318007, 0x0000000000000000000000000000000000fffFfF, cronTopic, 0);
-
-        rsc.react(cron);
-        rsc.react(cron);
-        assertEq(rsc.queueLength(), 1, "settled too early");
-
-        bytes memory payload = abi.encodeWithSignature("settleMarkout(address,bytes32)", address(0), tradeId);
-        vm.expectEmit(true, true, true, true, address(rsc));
-        emit IReactive.Callback(11155111, address(executor), 1_000_000, payload);
-        rsc.react(cron);
-        assertEq(rsc.queueLength(), 0, "trade not dequeued");
-    }
-
-    // -------------------------------------------------------------------------
-    // helpers
-    // -------------------------------------------------------------------------
-
-    function _log(uint256 chainId, address emitter, uint256 topic0, uint256 topic1)
-        internal
-        pure
-        returns (IReactive.LogRecord memory)
-    {
-        return IReactive.LogRecord({
-            chain_id: chainId,
-            _contract: emitter,
-            topic_0: topic0,
-            topic_1: topic1,
-            topic_2: 0,
-            topic_3: 0,
-            data: new bytes(0),
-            block_number: 1,
-            op_code: 0,
-            block_hash: 0,
-            tx_hash: 0,
-            log_index: 0
-        });
+    function trades_settleAfter(bytes32 tradeId) internal view returns (uint32) {
+        (,,,,,,, uint32 settleAfter,,) = hook.trades(tradeId);
+        return settleAfter;
     }
 }

@@ -183,3 +183,13 @@ All logic must be rigorously verified via Foundry.
 | **TSK-06** | Testing | Write Foundry suite for `test_organic_reverts_refunds`, `test_arb_sustains_donates`, and `test_exact_out_delta_precision`. | To Do |
 | **TSK-07** | Ops | Deploy to Sepolia/Lasna testnets. Call `depositTo` on both networks to ensure `Active` status. | To Do |
 | **TSK-08** | Docs | Write README and assemble `LiveProofPack` with valid Reactscan hashes. Record 5-minute demo video. | To Do |
+---
+
+## Addendum (2026-08-23) — shipped architecture delta
+
+The Reactive Network is not a sponsor/judge of this cohort, so the settlement mechanism was replaced with an on-chain equivalent that preserves every behavioral guarantee:
+
+- The `Cron1`-driven 3-tick window is now an on-chain timestamp gate: `settle(tradeId)` is callable by **anyone** once `block.timestamp >= bondTime + 21 s`. Early settles revert (`SettlementWindowOpen`); replays revert (`AlreadySettled`). No keeper is required for correctness.
+- P_T is the **time-weighted average tick** over the window from a hook-maintained accumulator (v4.0.0 ships no oracle), advanced on every swap, by a public permissionless `poke()`, and at settlement — replacing spot-at-settle so that single-instant price shoves cannot decide a bond.
+- All PRD hard constraints still hold: immediate fill on the AMM curve, bond = exactly 20 bps of the `balanceDelta`-derived `amountIn` (never `slot0`), no external oracles, dust swaps revert.
+- The Reactive contracts (RSC, executor) were removed from the tree; their story and the investigation that led here are in `blockers.md`.

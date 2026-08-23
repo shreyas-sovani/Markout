@@ -22,9 +22,15 @@ These tests are the only executable spec of the PRD's behavioral guarantees (bon
 
 ## Current State
 
-11/11 passing (`forge test`).
+14/14 passing (`forge test`): 6 engine + 8 integration. Integration suite covers the permissionless-settlement world: window-open revert, replay revert, intra-block spot-game immunity, TWAP-honored reversion.
 
 ## Decision Log
+
+### 2026-08-23 — suite rewritten for permissionless settlement + TWAP
+- **Change**: executor/Reactscan scaffolding removed from setUp (hook ctor is now just the PoolManager). New tests: `settleWindowOpen_reverts`, `settle_replay_reverts`, `spotGames_ignored` (micro shove+restore in one block after a poke — invisible to the accumulator), `twap_honorsSustainedReversion` (early reversion held across the window ⇒ Refund). Settles now invoked by a random third party (`settler`) with `vm.warp` past the window.
+- **Reasoning**: tests must assert the new trust model — anyone settles, only after T, and only time-weighted state matters.
+- **Rejected alternative(s)**: an "instant tail-shove must not flip" test was written first and failed — correctly: a tail shove that dominates the window average IS a sustained reversion by definition (the attacker genuinely moved and held the price). Replaced with the honest pair of spot-game and held-reversion tests.
+- **Task/session**: pivot session 2026-08-23.
 
 ### 2026-08-17 — initial suite
 - **Change**: wrote both suites plus `mocks/MockERC20.sol`.

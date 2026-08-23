@@ -10,9 +10,8 @@ This file is the canonical source of instructions for any AI coding agent workin
 
 ### Things actively in flux right now
 
-- **BLOCKED on Lasna: RVM never activates.** RSCs deploy and subscribe on RNK, but Reactscan shows 0 RVM/0 RNK transactions and 0 contracts for every RSC deployed (0x6719F2…, 0x7B3378…, 0xEA48ad…). No `react()` execution → no settlement callbacks ever reach Sepolia. Full diagnosis + unblock options in `blockers.md`.
-- Sepolia side fully working: swaps live, bonds escrowed (5 trades awaiting settlement), all contracts verified. Demo runbook ready in `demo.md`.
-- Remaining after unblock: live demo runs → LiveProofPack, README fill-in, video, push (todo.md Phase 5–6).
+- **Reactive Network dependency removed (2026-08-23)** per the human's §4 go/no-go decision — Reactive is not a sponsor/judge of this cohort. Markout now settles permissionlessly on Sepolia: time-gated `settle()` + hook-native TWAP accumulator. New stack deployed, Etherscan-verified, and live-proven (real Refund + Donate settlement hashes in README). Reactive contracts (`MarkoutReactive`, `MarkoutExecutor`, `InstantSettleReactive`) and `Deploy.Lasna.s.sol` deleted — preserved in git history; investigation record in `blockers.md`.
+- Remaining: demo video (human), final submission checklist (`todo.md` Phase 6).
 - Note: this Section 0 was condensed to a PRD pointer by a human edit during the 2026-08-17 session; the detailed project-context bullet list that used to live here is preserved in git history.
 
 ---
