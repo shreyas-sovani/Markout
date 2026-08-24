@@ -32,8 +32,8 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     uint256 public constant SWAP_FEE = 300; // 3 bps, set at pool initialization
     uint256 public constant BOND_BPS = 20;
     uint256 public constant BPS_DENOMINATOR = 10_000;
-    /// @notice Settlement window T. 3 Reactive-Cron-style ticks in the
-    /// original design; now simply an on-chain timestamp delay.
+    /// @notice Settlement window T: time a bond must wait before anyone may
+    /// settle it. Long enough for natural arbitrage to revert organic flow.
     uint256 public constant SETTLEMENT_DELAY = 21 seconds;
 
     enum Outcome {
@@ -215,6 +215,10 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     /// adversarial settle is impossible and a self-interested settle is
     /// harmless. P_T is the time-weighted average tick over the window, taken
     /// from the hook's own accumulator (pool-local, no external oracle).
+    /// The recorded outcome reflects where the bond value went: if the oracle
+    /// says refund but the transfer to the trader fails (e.g. a frozen token),
+    /// the bond falls through to the LPs and the outcome is Donate —
+    /// settlement can never brick.
     function settle(bytes32 tradeId) external {
         Trade storage trade = trades[tradeId];
         if (trade.settleAfter == 0) revert UnknownTrade();
@@ -230,17 +234,46 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         uint160 sqrtT = TickMath.getSqrtPriceAtTick(int24(avgTick));
 
         bool refund = MarkoutEngine.decide(trade.sqrtPre, trade.sqrtPost, sqrtT);
-        trade.outcome = refund ? Outcome.Refund : Outcome.Donate;
-
-        if (refund) {
-            // Return the escrowed bond to the trader.
-            trade.bondCurrency.transfer(trade.trader, trade.bondAmount);
+        if (refund && _tryTransfer(trade.bondCurrency, trade.trader, trade.bondAmount)) {
+            trade.outcome = Outcome.Refund;
         } else {
-            // Socialize the bond: pay it into the pool and donate it to LPs.
+            // Toxic — or refund undeliverable. Socialize the bond: pay it
+            // into the pool and donate it to LPs.
+            trade.outcome = Outcome.Donate;
             poolManager.unlock(abi.encode(tradeId));
         }
 
         emit Settled(tradeId, uint8(trade.outcome), sqrtT, trade.bondAmount);
+    }
+
+    /// @notice Attempt an ERC-20 (or native) transfer without reverting.
+    /// @dev Strict success check: the call must not revert AND must return
+    /// either nothing or exactly `true`.
+    function _tryTransfer(Currency currency, address to, uint256 amount) internal returns (bool ok) {
+        if (currency.isAddressZero()) {
+            // solhint-disable-next-line no-inline-assembly
+            assembly {
+                ok := call(gas(), to, amount, 0, 0, 0, 0)
+            }
+        } else {
+            bytes memory data = abi.encodeWithSelector(0xa9059cbb, to, amount); // transfer(address,uint256)
+            // solhint-disable-next-line no-inline-assembly
+            assembly {
+                ok := call(gas(), currency, 0, add(data, 32), mload(data), 0, 32)
+                if ok {
+                    switch returndatasize()
+                    case 0 {}
+                    default { ok := and(eq(returndatasize(), 32), eq(mload(0), 1)) }
+                }
+            }
+        }
+    }
+
+    /// @notice Exact bond charged for a given input amount: 20 bps, floored.
+    /// @dev Public quoting view so routers and UIs never re-derive the math.
+    /// A result of 0 means the swap would revert with `SwapTooSmall`.
+    function bondFor(uint256 amountIn) external pure returns (uint256) {
+        return (amountIn * BOND_BPS) / BPS_DENOMINATOR;
     }
 
     function unlockCallback(bytes calldata data) external override returns (bytes memory) {

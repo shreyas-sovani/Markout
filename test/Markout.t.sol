@@ -278,6 +278,45 @@ contract MarkoutTest is Test {
     }
 
     // -------------------------------------------------------------------------
+    // refundUndeliverable_donates: a frozen/undeliverable refund must never
+    // brick settlement — the bond falls through to the LPs instead.
+    // -------------------------------------------------------------------------
+
+    function test_refundUndeliverable_donates() public {
+        _swap(alice, true, -2e17);
+        bytes32 tradeId = hook.lastTradeId();
+
+        // Arbitrageur reverts the price => engine verdict is Refund...
+        _swap(arber, false, -2e17);
+        vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
+
+        // ...but the trader's refund becomes undeliverable (e.g. a
+        // blacklist-style token that rejects transfers to the trader while
+        // still allowing transfers to the pool). Settlement must still
+        // succeed and route the bond to LPs.
+        MockERC20(Currency.unwrap(currency0)).setBlocked(alice, true);
+
+        uint256 pool0 = currency0.balanceOf(address(manager));
+        uint256 escrow = currency0.balanceOf(address(hook));
+        vm.prank(settler);
+        hook.settle(tradeId);
+
+        assertEq(uint8(_outcome(tradeId)), uint8(MarkoutHook.Outcome.Donate), "undeliverable refund must donate");
+        assertEq(currency0.balanceOf(address(hook)), 0, "escrow must be released");
+        assertEq(currency0.balanceOf(address(manager)), pool0 + escrow, "pool must receive the bond");
+    }
+
+    // -------------------------------------------------------------------------
+    // bondFor_quotes: public quoting view matches the charged bond exactly
+    // -------------------------------------------------------------------------
+
+    function test_bondFor_quotes() public view {
+        assertEq(hook.bondFor(1e18), 2e15, "bondFor(1e18)");
+        assertEq(hook.bondFor(499), 0, "bondFor dust");
+        assertEq(hook.bondFor(500), 1, "bondFor minimum unit");
+    }
+
+    // -------------------------------------------------------------------------
     // swapTooSmall_reverts
     // -------------------------------------------------------------------------
 

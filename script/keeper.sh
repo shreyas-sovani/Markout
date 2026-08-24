@@ -14,9 +14,9 @@ set -euo pipefail
 : "${RPC:?set RPC}"
 : "${PK:?set PK}"
 
-HOOK=0xF51b4DD1e87D786fE7F3dFAAD29b754F11CdC0c0
+HOOK=0xE79B7Ef0Bb9984BDB614f58d2C8000ce98b180C0
 POOL_ID=0x$(cast keccak "$(cast abi-encode "f((address,address,uint24,int24,address))" \
-  "(0x3b05a2ff8351ca6d8782e892a55e616a7f41e6a8,0x94e7f1324d87ba28d8fc556bd5c9be9e598680c0,300,60,0xf51b4dd1e87d786fe7f3dfaad29b754f11cdc0c0)")")
+  "(0x7e80764a88133cfc3da52b7305044da782904667,0xcbbe82f3b6331dbe9faead19d3757371b059bdae,300,60,0xe79b7ef0bb9984bdb614f58d2c8000ce98b180c0)")")
 SETTLE_AFTER=21
 LOOP_SECS=15
 FROM_BLOCK=$(( $(cast block-number --rpc-url "$RPC") - 200 ))

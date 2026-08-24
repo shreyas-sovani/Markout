@@ -10,9 +10,8 @@ This file is the canonical source of instructions for any AI coding agent workin
 
 ### Things actively in flux right now
 
-- **Reactive Network dependency removed (2026-08-23)** per the human's §4 go/no-go decision — Reactive is not a sponsor/judge of this cohort. Markout now settles permissionlessly on Sepolia: time-gated `settle()` + hook-native TWAP accumulator. New stack deployed, Etherscan-verified, and live-proven (real Refund + Donate settlement hashes in README). Reactive contracts (`MarkoutReactive`, `MarkoutExecutor`, `InstantSettleReactive`) and `Deploy.Lasna.s.sol` deleted — preserved in git history; investigation record in `blockers.md`.
-- Remaining: demo video (human), final submission checklist (`todo.md` Phase 6).
-- Note: this Section 0 was condensed to a PRD pointer by a human edit during the 2026-08-17 session; the detailed project-context bullet list that used to live here is preserved in git history.
+- Code stable: contracts + tests green (`forge test` 14/14), deployed live on Sepolia (addresses in README), all sources Etherscan-verified, end-to-end proof (Refund + Donate) executed with real hashes in README.
+- Remaining: demo video (human) and final submission.
 
 ---
 
@@ -112,7 +111,7 @@ Used when a human is about to run out of context window on the current agent ses
 ---
 
 ## 4. Global Conventions
-Build: Use forge build to compile the Solidity smart contracts.  Test: Use forge test to run the Foundry suite, asserting observable outcomes through module interfaces (e.g., organicQuiet_refundsBond, exactOut_chargesInputBondAndFillsOutput, and swapTooSmall_reverts).  Lint/format: Use forge fmt for standard Solidity formatting.Branch/commit conventions: All commits must be made to a public GitHub repository on the correct branch to satisfy the binary qualifications for judging.  What requires human sign-off before merging:Any decision to drop the Reactive Network integration from the README (the "go/no-go" decision threshold on Friday, August 21).  Disclosures detailing that the TWAP adapter is swap-local and does not rely on a fake oracle partner.  
+Build: Use forge build to compile the Solidity smart contracts.  Test: Use forge test to run the Foundry suite, asserting observable outcomes through module interfaces (e.g. organicQuiet_refundsBond, exactOut_chargesInputBondAndFillsOutput, and swapTooSmall_reverts).  Lint/format: Use forge fmt for standard Solidity formatting.Branch/commit conventions: All commits must be made to a public GitHub repository on the correct branch to satisfy the binary qualifications for judging.  Disclosures detailing that the mean-reversion oracle is entirely hook-local (pool's own prices + hook accumulator, no external oracle partner) must stay in the README.
 ---
 
 ## 5. What Never Goes in These Files

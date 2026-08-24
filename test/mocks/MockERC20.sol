@@ -12,6 +12,12 @@ contract MockERC20 is IERC20Minimal {
     mapping(address => mapping(address => uint256)) private _allowances;
     uint256 private _totalSupply;
 
+    mapping(address => bool) public blocked;
+
+    function setBlocked(address account, bool status) external {
+        blocked[account] = status;
+    }
+
     constructor() {
         name = "Mock";
         symbol = "MCK";
@@ -53,6 +59,7 @@ contract MockERC20 is IERC20Minimal {
     }
 
     function _transfer(address from, address to, uint256 amount) internal {
+        require(!blocked[from] && !blocked[to], "ACCOUNT_BLOCKED");
         uint256 balance = _balances[from];
         require(balance >= amount, "INSUFFICIENT_BALANCE");
         _balances[from] = balance - amount;

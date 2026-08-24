@@ -44,36 +44,36 @@ Toxic single-shot arbitrage moves an AMM to the global market price and *stays t
 | `src/BaseHook.sol` | Minimal IHooks base with no-op defaults (v4-periphery v4.0.0 ships none). |
 | `script/keeper.sh` | Optional keeper: pokes the oracle and settles due trades. |
 
-## Tests — 14/14 passing
+## Tests — 16/16 passing
 
 ```shell
 forge build && forge test
 ```
 
 Engine (6): up/down reversion refunds, sustain donates, 4-vs-6 bps price-space boundary, zero-impact donates.
-Integration (8): `organicQuiet_refundsBond`, `arbSustains_donates`, `exactOut_chargesInputBondAndFillsOutput`, `swapTooSmall_reverts`, `settleWindowOpen_reverts`, `settle_replay_reverts`, `spotGames_ignored` (intra-block manipulation invisible to the TWAP), `twap_honorsSustainedReversion`.
+Integration (10): `organicQuiet_refundsBond`, `arbSustains_donates`, `exactOut_chargesInputBondAndFillsOutput`, `swapTooSmall_reverts`, `settleWindowOpen_reverts`, `settle_replay_reverts`, `spotGames_ignored` (intra-block manipulation invisible to the TWAP), `twap_honorsSustainedReversion`, `refundUndeliverable_donates` (a blacklisted refund never bricks settlement — the bond falls through to LPs), `bondFor_quotes` (public quoting view matches the charged bond).
 
 ## Deployed & proven on Sepolia (all source-verified on Etherscan)
 
 | Contract | Address |
 | --- | --- |
-| MarkoutHook | [0xF51b4DD1e87D786fE7F3dFAAD29b754F11CdC0c0](https://sepolia.etherscan.io/address/0xf51b4dd1e87d786fe7f3dfaad29b754f11cdc0c0) |
-| MarkoutRouter | [0x9640D3679c4440Cc7B1d56D7617f078c196BA7cC](https://sepolia.etherscan.io/address/0x9640d3679c4440cc7b1d56d7617f078c196ba7cc) |
-| PoolManager | [0x160fF6871308D84089284A6aA1D357334575b03C](https://sepolia.etherscan.io/address/0x160ff6871308d84089284a6aa1d357334575b03c) |
-| Demo token0 | [0x3b05a2fF8351CA6D8782E892a55e616A7F41E6A8](https://sepolia.etherscan.io/address/0x3b05a2ff8351ca6d8782e892a55e616a7f41e6a8) |
-| Demo token1 | [0x94E7F1324D87BA28D8Fc556BD5C9be9E598680c0](https://sepolia.etherscan.io/address/0x94e7f1324d87ba28d8fc556bd5c9be9e598680c0) |
+| MarkoutHook | [0xE79B7Ef0Bb9984BDB614f58d2C8000ce98b180C0](https://sepolia.etherscan.io/address/0xe79b7ef0bb9984bdb614f58d2c8000ce98b180c0) |
+| MarkoutRouter | [0xCeBe3Ce43Db694F2313445999648b1FBBBf20890](https://sepolia.etherscan.io/address/0xcebe3ce43db694f2313445999648b1fbbbf20890) |
+| PoolManager | [0xCC5795163c3E966074B3eF091a0580C96D16E5a2](https://sepolia.etherscan.io/address/0xcc5795163c3e966074b3ef091a0580c96d16e5a2) |
+| Demo token0 | [0x7e80764a88133cFc3dA52b7305044dA782904667](https://sepolia.etherscan.io/address/0x7e80764a88133cfc3da52b7305044da782904667) |
+| Demo token1 | [0xCBbe82f3B6331dbE9fAEAD19D3757371b059BDAe](https://sepolia.etherscan.io/address/0xcbbe82f3b6331dbe9faead19d3757371b059bdae) |
 
-### LiveProofPack — real end-to-end run (2026-08-23)
+### LiveProofPack — real end-to-end run (2026-08-24)
 
 Organic flow → **Refund**:
 
-1. Organic buy (bond 2e15 escrowed): [`0x5d3a3e77…ebc9d`](https://sepolia.etherscan.io/tx/0x5d3a3e77a27472d4f1172663d0ef4b53745223d34dc76d214033985b7a1ebc9d)
-2. Arbitrageur reverts the price: [`0x6ffa757c…191a5`](https://sepolia.etherscan.io/tx/0x6ffa757c2380aaf2325498d83786d6f4b827ea27de6f04afe2ab223674b191a5)
-3. Permissionless settle → `Settled(outcome=Refund)`, bond returned to the trader: [`0x567fa241…88ac9b`](https://sepolia.etherscan.io/tx/0x567fa24109abe910b134fc5c58a78d41e2a040cf51b5265abc9c71ec9c88ac9b)
+1. Organic buy (bond 2e15 escrowed): [`0xa6630ec4…8273b`](https://sepolia.etherscan.io/tx/0xa6630ec4a1bda38dad5b65b1b022faef678ceb813694a7ad2f7070ffe048273b)
+2. Arbitrageur reverts the price: [`0x55d215f2…10a74`](https://sepolia.etherscan.io/tx/0x55d215f2f67fac2990bbc69bc13da95eb5b050dd005e22504556c843df410a74)
+3. Permissionless settle → `Settled(outcome=Refund)`, bond returned to the trader: [`0x01c54182…bacda`](https://sepolia.etherscan.io/tx/0x01c541821d6fab93e4c299a677e4b9a96b0a188d653391ab361a7114b84bacda)
 
 Toxic flow → **Donate** (the arbitrageur's own reversal trade, left unreversed):
 
-4. Bonded in tx 2 above; price sustained → settle → `Settled(outcome=Donate)` + `Donate` on the PoolManager, bond socialized to LPs: [`0xac947b0f…d16389`](https://sepolia.etherscan.io/tx/0xac947b0fe194268cbddf1622a954d216e897413edad6bef168a8637fb9d16389)
+4. Bonded in tx 2 above; price sustained → settle → `Settled(outcome=Donate)` + `Donate` on the PoolManager, bond socialized to LPs: [`0xf2dffadf…75f74`](https://sepolia.etherscan.io/tx/0xf2dffadf20c98ff941fc7ae301fa0412e1c54b919c3256e29554279f77d75f74)
 
 Accounting checks out exactly: trader balance +2e15 on refund, hook escrow 0 after both settles, PoolManager holds the donated bond.
 
@@ -87,13 +87,14 @@ Full runbook with commands, expected outcomes, and troubleshooting: [`demo.md`](
 - The 21 s window and 5 bps threshold are constants tuned for the demo; both are single-line changes.
 - Settlement price is a time-weighted average with attribution-at-update semantics: between two pokes, elapsed time is attributed to the price observed at the next update. Keeper cadence bounds the misattribution window (the on-chain settle and every swap also poke).
 - The bond receipt is a minimal ERC-6909 ledger (transfer + operator approval) minted per trade as an on-chain record; it is not burned on settlement.
+- **Settlement can never brick**: if the oracle orders a refund but the token cannot deliver it to the trader (e.g. blacklist-style tokens), the bond falls through to the LPs and the outcome records `Donate`.
+- **Quoting surface**: `bondFor(amountIn)` is a public view returning the exact bond (20 bps floored); a result of 0 means the swap would revert `SwapTooSmall`.
 - Router trust: any router may swap through the pool; the trader identity it declares in `hookData` only affects where the receipt and any refund are sent, and the router's swapper always pays the bond. A production deployment would allowlist routers.
-- An earlier iteration settled via the Reactive Network; that integration was parked after the network failed to activate any RVM for our deployer across three contracts (see `blockers.md` — Sepolia side worked throughout). The permissionless design shipped here is strictly simpler and has no external network dependency.
 
 ## Repository layout
 
-- `src/` — protocol contracts (see `src/AGENTS.md`)
-- `test/` — Foundry suite (see `test/AGENTS.md`)
-- `script/` — deployment + keeper (see `script/AGENTS.md`)
-- `docs/prd/markout.md` — original product requirements document
-- `demo.md` — live demo runbook · `progress.md` — build log · `blockers.md` — parked Reactive investigation
+- `src/` — protocol contracts
+- `test/` — Foundry suite
+- `script/` — deployment + keeper
+- `docs/prd/markout.md` — product requirements document
+- `demo.md` — live demo runbook
