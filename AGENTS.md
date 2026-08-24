@@ -10,7 +10,9 @@ This file is the canonical source of instructions for any AI coding agent workin
 
 ### Things actively in flux right now
 
-- Code stable: contracts + tests green (`forge test` 14/14), deployed live on Sepolia (addresses in README), all sources Etherscan-verified, end-to-end proof (Refund + Donate) executed with real hashes in README.
+- Code stable: contracts + tests green (`forge test` 16/16), deployed live on Sepolia (addresses in README), all sources Etherscan-verified, end-to-end proof (Refund + Donate) executed with real hashes in README (freshest run 2026-08-25).
+- Live browser UI shipped in `frontend/` (Next.js + viem, injected wallets only): one-click demo-token mint, swap through MarkoutRouter, 21 s countdown, permissionless settle, Refund/Donate verdict, trade history. Run with `npm install && npm run dev` inside `frontend/`. Read pipeline and tx pipeline validated against live Sepolia state on 2026-08-25.
+- Removed the leftover tracked doc `docs/reactive network docs copy.md` from the index on 2026-08-25 (final scrub completion).
 - Remaining: demo video (human) and final submission.
 
 ---

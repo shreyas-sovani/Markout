@@ -2,6 +2,14 @@
 
 Everything needed to run the demo end-to-end against the deployed Sepolia stack, verify each step, and fix the known traps.
 
+## Fastest path — the browser UI
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+One page against the live deployment: connect wallet (Sepolia), `+100 each` mints demo tokens, swap, watch the 21 s countdown, hit `settle(tradeId)`, get the REFUND/DONATE verdict, and see your trade history with outcomes. The terminal runs below prove the same flows without a wallet.
+
 ## Prerequisites
 
 ```bash
@@ -14,8 +22,8 @@ Operator EOA holds demo tokens and has approved the router. Addresses in README.
 ## Constants
 
 ```bash
-HOOK=0xE79B7Ef0Bb9984BDB614f58d2C8000ce98b180C0
-ROUTER=0xCeBe3Ce43Db694F2313445999648b1FBBBf20890
+HOOK=0xe79B7Ef0Bb9984BDb614F58D2c8000CE98b180c0
+ROUTER=0xcEbe3CE43db694f2313445999648B1FbbBf20890
 K="(0x7e80764a88133cfc3da52b7305044da782904667,0xcbbe82f3b6331dbe9faead19d3757371b059bdae,300,60,0xe79b7ef0bb9984bdb614f58d2c8000ce98b180c0)"
 ```
 

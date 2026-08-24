@@ -83,6 +83,9 @@ Uniswap v4 core ships no oracle, so the hook maintains one per pool, Uniswap-V2-
 4. **Keeper (script/keeper.sh):**
    * Optional automation: pokes the accumulator and settles due trades.
 
+5. **Frontend (frontend/):**
+   * Live one-page browser UI against the deployed Sepolia stack (Next.js + viem, injected wallets). Mint demo tokens, swap through `MarkoutRouter`, 21 s countdown, permissionless settle, explicit Refund/Donate verdict, bonded-trade history, live pool price/tick from the PoolManager.
+
 ## 7. Testing Strategy
 
 All logic verified via Foundry — 16/16 passing.
@@ -110,3 +113,4 @@ All logic verified via Foundry — 16/16 passing.
 | **TSK-06** | Deploy to Sepolia + Etherscan verification | Done |
 | **TSK-07** | LiveProofPack: real Refund + Donate settlement hashes | Done (README) |
 | **TSK-08** | Demo video | Pending (human) |
+| **TSK-09** | Live browser UI (frontend/) against the deployment | Done |
