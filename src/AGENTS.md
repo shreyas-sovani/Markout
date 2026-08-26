@@ -2,63 +2,64 @@
 
 ## Ownership
 
-Core Markout protocol contracts: the Uniswap v4 hook, its settlement engine, and the reference router. This is the entire on-chain product.
+Core Markout protocol contracts: the Uniswap v4 hook, its normalized reversion engine, the trusted router, the capped faucet token, and the local BaseHook base. This is the entire on-chain product.
 
 ## Purpose
 
-Implements the PRD at `docs/prd/markout.md`: swaps fill immediately at 3 bps while the hook escrows a 20 bps input bond; after a 21 s window, a time-weighted mean-reversion oracle settles each trade — refund if the pool price reverted >5 bps toward its pre-swap level (benign flow), donate to LPs if it sustained (informed flow).
+Implements the hardened PRD thesis: swaps fill immediately at 3 bps while a 20 bps input bond is escrowed; over the trade's **immutable** [bondTime, settleAfter] window (21 s) a hook-maintained previous-tick accumulator measures the time-weighted average tick, and the **normalized reversion classifier** refunds when ≥50% of the trade's own tick impact reverted (organic flow) or donates to in-range LPs when it sustained (informed flow).
 
 ## What This Controls
 
-If any contract here is wrong, traders lose bonds incorrectly, LPs lose the MEV dividend, or swaps revert outright. Specifically:
+If any contract here is wrong: traders lose bonds incorrectly, LPs lose the MEV dividend, swaps revert outright, or verdicts become manipulable. Specifically:
 
-- `MarkoutEngine.decide` mis-classification flips refunds ↔ donations (direct value misallocation).
-- `MarkoutHook.afterSwap` bond math controls what traders are charged; `settle` moves escrowed value; the TWAP accumulator quality controls outcome integrity.
-- `MarkoutRouter` settlement order controls whether swaps complete at all (`CurrencyNotSettled` if the hook's bond debt isn't paid).
+- `MarkoutEngine.decide` — mis-classification flips refunds ↔ donations.
+- `MarkoutHook` — bond math, the observation ring (fixed-window integrity), settlement state machine (verdict-before-value), pull refunds, deferred donations, escrow liability accounting.
+- `MarkoutRouter` — deadline/slippage enforcement, native + ERC-20 settlement, strict transfers, self-encoded beneficiary.
+- `FaucetToken` — demo-asset integrity (capped, un-sabotageable).
 
 ## Connections
 
-- Depends on: `lib/v4-core` (PoolManager, Hooks, StateLibrary, TickMath, FullMath), `lib/v4-periphery` (test-only: HookMiner).
-- Depended on by: `test/Markout.t.sol`, `test/MarkoutEngine.t.sol`, `script/` deploy + keeper.
-- External systems: Sepolia (11155111).
+- Depends on: `lib/v4-core` (PoolManager, Hooks, StateLibrary, TickMath), Permit2 + canonical periphery (deploy path only).
+- Depended on by: `test/` (all four suites), `script/` deploy + keeper, `frontend/` ABIs.
+- External systems: canonical Sepolia v4 (`0xE03A…3543`).
 
 ## Current State
 
-Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). 16/16 tests passing. Deployed live on Sepolia 2026-08-24 and live-proven end-to-end (refund + donate hashes in README); all sources Etherscan-verified.
+Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). 43/43 tests green across four suites (unit / integration-attack / fuzz-invariant / canonical-fork). Deployed live against the canonical Sepolia PoolManager 2026-08-25 (hook `0xAe5A786094a36475EF619956bb6F1C6089Def0c0`, router `0x378f4E63f8aFf6e771EAfa95BCAf0Df6571a5ec8`), Etherscan-verified, with a fresh Refund + Donate proof pack (pull-claim and donation-flush included).
 
 ## Decision Log
 
-### 2026-08-24 — settlement cannot brick; public quoting view
-- **Change**: refund delivery uses a strict-checked low-level `_tryTransfer` (no-revert AND empty-or-true returndata); on failure the bond falls through to the donate path and the outcome records `Donate`. Added `bondFor(uint256) external pure` quoting view (exact 20 bps floored; 0 ⇒ `SwapTooSmall`).
-- **Reasoning**: a plain CurrencyLibrary transfer on the refund path would revert the whole settle forever for blacklist-style tokens that reject transfers to the trader but allow transfers to the pool — settlement must be unbrickle. `bondFor` gives routers/UIs the bond math without re-deriving it.
-- **Rejected alternative(s)**: recording `Refund` while the transfer failed (event would lie about value flow — outcome records where value went); leaving escrow stuck for later retry (adds states for an edge case donate already handles).
-- **Task/session**: hardening session 2026-08-24.
+### 2026-08-25 — fixed-window previous-tick oracle + normalized classifier
+- **Change**: `MarkoutEngine.decide(int24 pre, int24 post, int24 windowAvg)` refunds iff ≥50% of the signed impact reverted (zero impact refunds; overshoot refunds; away donates); `reversionBps` preview helper. Hook keeps a 64-entry per-pool observation ring of `(timestamp, cumulative, tick)` with previous-tick attribution (elapsed time accrues to the tick held *before* the update); `cumulativeAt(poolId, t)` interpolates any past or projected-future point; `settle`/`previewTrade` always evaluate over `[bondTime, settleAfter]` regardless of settle time. Same-block beforeSwap→afterSwap updates rewrite the held tick in place (no accrual).
+- **Reasoning**: the old [bond, settleTime] window + absolute 5 bps band let a last-look attacker shove price right before settlement, and mis-sized verdicts for tiny/huge trades. The immutable window kills timing manipulation; normalizing by the trade's own impact makes the verdict scale-free.
+- **Rejected alternative(s)**: spot-at-settle (single-instant griefing); avg-vs-pre absolute band (tiny trades never cross it, huge trades cross on noise); unbounded observation history (storage growth); silently guessing when retention is lost (settles revert `SettlementHistoryPruned` — explicit refusal, never a different verdict).
+- **Task/session**: prize hardening, 2026-08-25.
 
-### 2026-08-23 — permissionless settlement + hook-native TWAP
-- **Change**: `settle(bytes32)` is permissionless after a 21 s window (`SettlementWindowOpen` before, `AlreadySettled` after, `UnknownTrade` guard); P_T is the time-weighted average tick over the window from a hook-maintained per-pool accumulator (`Observation{lastTimestamp, tickCumulative}`, advanced by swaps, public `poke()`, and settle itself); Trade struct carries `bondTime`/`settleAfter`/`tickCumulativeAtBond`. Constructor is `(IPoolManager)` only.
-- **Reasoning**: an on-chain timestamp gate replaces any external clock. TWAP replaces spot-at-settle because a thin pool's price can be shoved across the 5 bps band for one instant cheaply — the window average makes manipulation cost scale with holding time. v4.0.0 core ships no oracle, so the hook accumulates ticks itself (Uniswap-V2-style attribution-at-update).
-- **Rejected alternative(s)**: spot-at-settle (cheap single-instant griefing); avg-vs-pre threshold (organic refunds become sensitive to sub-second reversion delay); avg-vs-post with a "tail shove must not flip" expectation — rejected the *test*, not the code: a shove that dominates the window average IS a sustained reversion by definition.
-- **Task/session**: hardening session 2026-08-23.
+### 2026-08-25 — terminal settlement: immutable verdicts, pull refunds, deferred donations
+- **Change**: `settle` performs zero external calls and records the outcome before any value moves. Outcomes: `None → RefundPending | Donated`. Refunds are pull-based: `claimRefund` marks `refundClaimed` *before* the transfer; on delivery failure it resets and stays retryable (`RefundDeliveryFailed`). Donations accumulate per pool/currency in `pendingDonation`; `flushDonation(poolId)` pays them into the pool via `donate()` only when `getLiquidity > 0` (zero-liquidity settle succeeds and defers). `escrowLiability[currency]` tracks open+refund+donation value; hook balances must cover it (invariant-tested). Native support end-to-end: hook `take`s native bonds physically, `claimRefund` sends ETH, flush pays in via `settle{value}`; `receive()` accepts only the PoolManager. The pseudo-ERC-6909 receipt ledger was removed entirely — events + `Trade` state are the record.
+- **Reasoning**: external-call-first refunds reentered and could brick; blacklist tokens previously forced donate-fallthrough, destroying the refund verdict — now the verdict survives and delivery retries; donations at zero liquidity previously had no outlet, now they wait.
+- **Rejected alternative(s)**: fall-through donate on failed delivery (the old v1 behavior — loses the verdict); a shared donation sweep inside `settle` (breaks zero-liquidity safety); burning receipts on settle (no receipts exist anymore).
+- **Task/session**: prize hardening, 2026-08-25.
 
-### 2026-08-17 — initial implementation
-- **Change**: MarkoutEngine, BaseHook, MarkoutHook, MarkoutRouter written from scratch; Foundry scaffolded with v4-core v4.0.0 + v4-periphery.
-- **Reasoning / rejected alternatives**:
-  - **Bond escrow = `poolManager.take` + router `settleFor(hook)`**. The hook pulls real input tokens during afterSwap; its pool debt is paid by the router on the swapper's behalf. Rejected: v4's own ERC-6909 claims (`poolManager.mint`) — in v4.0.0 minting claims requires posting an equal amount of the real currency (flash-accounted, `NonzeroDeltaCount` checked at unlock end), which doubles the escrow cost and cannot be funded from within afterSwap.
-  - **Hook-native minimal ERC-6909 receipt minted to the trader** (id = uint256(tradeId)) instead of PoolManager 6909. The v4 PoolManager cannot burn trader-held claims without an operator approval flow, which would break refund UX. The receipt is a record; value flow is governed by `Trade.outcome` + the `Settled` event.
-  - **Trader identity in `hookData` (32-byte address)**. The direct `manager.swap` caller is the router, so `sender` in hook callbacks is the router, not the human. `MarkoutRouter` injects `msg.sender` into hookData; the hook falls back to `sender` for raw callers.
-  - **P_pre via transient storage** keyed by (poolId, sender) with `tstore`/`tload` (cancun). Rejected: persistent storage (gas + stale-state risk).
-  - **Engine compares price-space ratio `(sqrtT/sqrtPost)^2` in Q128.128 via FullMath** against ±5 bps thresholds; strict inequality (exactly 5 bps = donate). Squaring raw sqrtPriceX96 would overflow uint256, so the ratio is built with two fixed-point divisions instead.
-  - **BaseHook written locally** — v4-periphery v4.0.0 no longer ships `src/base/BaseHook.sol`. Same standard no-op pattern as upstream v4-examples.
-  - **Donate path inside `hook.unlockCallback`**: `sync(currency) → transfer → settle() → donate(key, amounts, "")`. The `sync` before transfer is mandatory: `settle()` derives "paid" from the synced-reserves delta, and without a fresh sync the credit reads as 0 and the unlock ends with `CurrencyNotSettled`.
-- **Task/session**: initial build session, 2026-08-17.
+### 2026-08-25 — locked router, pool config validation, full flag checks
+- **Change**: `initializeRouter` (deployer-only, one-time, permanent) locks the only allowed direct swap caller; `beforeSwap`/`afterSwap` revert `NotTrustedRouter` otherwise, and `hookData` must be the 32-byte beneficiary the trusted router encodes. `_beforeInitialize` enforces fee 300 + tickSpacing 60 (`UnsupportedPool`). `BaseHook` validates **all 14** v4 permission flags and its internal hooks are `virtual` with relaxed mutability.
+- **Reasoning**: only the Markout-aware router pays the hook's `settleFor` bond debt and truthfully declares the beneficiary; arbitrary callers could otherwise strand the hook's debt and spoof refund recipients.
+- **Task/session**: prize hardening, 2026-08-25.
+
+### 2026-08-25 — MarkoutRouter v2 + FaucetToken
+- **Change**: router takes `minAmountOut` + `deadline` (deadline checked outside unlock; slippage inside unlock before settlement), settles native via `settle{value}`/`settleFor{value}` and ERC-20 via strict-checked `transferFrom` (`TransferFromFailed`), returns leftover ETH, and always encodes `msg.sender` as beneficiary (no caller hookData). `FaucetToken`: fixed caps (total + per-address cumulative), `mint` to the PoolManager rejected, standard ERC-20 otherwise — no owner/pause/blacklist/tax.
+- **Reasoning**: unenforced deadlines/slippage made the reference integrator unsafe to copy; caller-chosen hookData let anyone redirect refunds under the old model; the old MockERC20's permissionless blacklist made the demo pool sabotagable.
+- **Task/session**: prize hardening, 2026-08-25.
+
+### Earlier history (condensed)
+- 2026-08-24: settlement-unbrickle `_tryTransfer` + `bondFor` view (superseded by pull refunds). 2026-08-23: permissionless time-gated settle + hook-native TWAP (superseded by the fixed-window ring). 2026-08-17: initial build — bond escrow via `take` + router `settleFor`, transient pre-tick via tstore, Q128.128 engine math (superseded by tick-space), local BaseHook.
 
 ## Known Gotchas
 
-- `remappings.txt` maps `@uniswap/v4-core/` at **repo root**, not its `src/` — imports must be `@uniswap/v4-core/src/...`. Double-`src` paths are the failure symptom.
-- `via_ir = true` + `optimizer_runs = 44444444` are required: v4-core's `Pool.swap` hits "stack too deep" Yul errors at lower runs.
-- Swap `sqrtPriceLimitX96: 0` reverts (`PriceLimitOutOfBounds`); always pass `MIN_SQRT_PRICE + 1` / `MAX_SQRT_PRICE - 1`. And it is **uint160** in the signature — encode `uint256` and cast builds a different selector silently.
-- v4.0.0 `StateLibrary.getSlot0` returns **4** values (sqrtPriceX96, tick, protocolFee, lpFee).
-- Hook reverts inside afterSwap get wrapped (ERC-7751) by v4's CustomRevert; tests can't match the bare selector — use generic `expectRevert()`.
-- `SwapBonded` topic0 `0x0d39a536aa19156d3df8b040edbfea1a971c7c4f0ce06729f3af7e589d7e6a14` — recompute with `cast keccak "SwapBonded(bytes32,address,uint160,uint160,uint256)"` if the event signature changes.
-- Transient P_pre keying by (poolId, sender) breaks if the same sender does two swaps in the same pool in one tx (LIFO violation). Accepted limitation.
-- The hook's ERC-6909 receipts are never burned on settlement — they remain as trade records. Intentional; no approval flow exists to burn trader-held tokens.
+- `via_ir = true` + `optimizer_runs = 44444444` are required (v4-core `Pool.swap` stack-too-deep otherwise) — and they push periphery PositionManager/PositionDescriptor past EIP-170, hence official-canonical seeding in `script/`.
+- v4 `getTickAtSqrtPrice` floors: an infinitesimal downward move reports tick −1; zero-impact tests must buy (upward) — see `test_zeroImpact_refunds`.
+- Solidity tuple destructuring must match component count exactly; `trades()` returns 11 components (the key tuple counts as one slot).
+- `settle`/`previewTrade` divide by `settleAfter − bondTime` (always 21); `cumulativeAt` reverts `SettlementHistoryPruned` when the ring (64 obs) no longer covers the window — honest refusal, not a wrong verdict.
+- Native bonds: hook physically holds ETH after afterSwap `take`; the flush path must NOT `take` again (double-count leaves the hook short — found via a CurrencyNotSettled in the native test).
+- `receive()` gating means plain ETH transfers to the hook revert; only the PoolManager pays in.
+- Deployer identity for `initializeRouter`: `tx.origin` under the canonical CREATE2 proxy, `msg.sender` otherwise.

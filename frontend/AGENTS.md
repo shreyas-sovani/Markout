@@ -6,7 +6,7 @@ The live browser UI for the Markout protocol — the demo surface judges and tra
 
 ## Purpose
 
-One-page Next.js app (App Router, single client page) wired directly to the deployed `MarkoutRouter` + `MarkoutHook`: injected-wallet connect, one-click demo-token mint, approve → swap → 21 s countdown → permissionless settle → explicit REFUND/DONATE verdict, bonded-trade history with outcomes, live pool price/tick read from the PoolManager's `extsload` slot0, LiveProofPack links, and the honest-limitations footer.
+One-page Next.js app (App Router, single client page) wired to the hardened canonical-Sepolia deployment: injected-wallet connect, capped-faucet mint, exact approvals with pre-write simulation, slippage + deadline protected swaps through the locked `MarkoutRouter`, deterministic receipt parsing (`SwapBonded`/`Settled`/`RefundClaimed` from own receipts — never a global last-trade pointer), refresh-safe trade recovery from logs + chain state, settle / claimRefund / flushDonation actions from the live panel and history rows, a **Price Memory Tape** (pre, post, live, window average, 50% reversion frontier, bond destination), one-click deterministic Refund and Donate demo pilots, RPC fallback + health chip, network switching, aria-live status regions, and mobile-card history.
 
 ## What This Controls
 
@@ -20,9 +20,15 @@ Nothing in the protocol — the UI is read/write over existing contracts. What b
 
 ## Current State
 
-Working: `next build` passes (static, ~211 kB first load); the full read pipeline (poolId derivation, slot0 extsload decode, SwapBonded log fetch, trades multicall) and the full tx pipeline (mint → approve → router.swap → settle) were validated against mainnet-Sepolia state on 2026-08-25, including a fresh Refund+Donate proof pair recorded in the README LiveProofPack.
+Working: `next build` passes (static, ~214 kB first load). Read pipeline (poolId, slot0 extsload, chunked logs, trades multicall, previewTrade) and tx pipeline (mint → exact approve → simulated swap → settle → claim → flush) validated against live canonical-Sepolia state on 2026-08-25 (`scripts/live-check.mjs`, `scripts/history-check.mjs`); the LiveProofPack in `lib/contracts.ts` points at the fresh Refund+Donate+claim+flush run.
 
 ## Decision Log
+
+### 2026-08-25 — v2 rebuild for the hardened protocol
+- **Change**: rewired to the canonical deployment (canonical PM `0xE03A…`, hook `0xAe5A…`, router `0x378f…`, capped faucet tokens). Deterministic receipts: tradeId/verdicts parsed from the tx's own logs (topic constants in `TOPICS`), no `lastTradeId`. Every write simulated first (`simulateContract`) with revert-reason toasts; exact approvals (`amountIn + bond`, never unlimited); user-editable slippage → `minAmountOut`, 5-minute deadline. Refresh recovery: on connect, SwapBonded logs + `trades()` multicall rebuild every open/claimable/settled trade; settle/claim buttons live on both panel and history rows. Price Memory Tape (SVG) plots pre/post/live ticks, the fixed-window average from `previewTrade`, the 50% frontier, and the bond destination after verdict. Deterministic pilots: REFUND = swap + 2.2× overshoot reversal + auto settle/claim; DONATE = single swap + auto settle/flush. RPC fallback (publicnode/drpc/1rpc) with health chip; `wallet_switchEthereumChain` prompt; aria-live countdown/verdict; history collapses to labeled cards under 680px.
+- **Reasoning**: lastTradeId races with other users' swaps; unlimited approvals and unsimulated writes are the two biggest dApp footguns; refresh used to strand in-flight trades; the 50% frontier is the product thesis and deserves the visual centerpiece.
+- **Rejected alternative(s)**: wagmi/redux state layers (dependency weight, no added correctness); estimating the window average client-side (previewTrade is authoritative); auto-flush timers in the panel (flush is permissionless and keeper-covered).
+- **Task/session**: prize hardening, 2026-08-25.
 
 ### 2026-08-25 — viem-only, no wagmi
 - **Change**: built initially with wagmi + react-query; replaced both with a ~60-line `lib/wallet.ts` (EIP-1193 `window.ethereum` hook) and `lib/usePoll.ts` after wagmi's connector barrel dragged the Coinbase SDK (`@x402/evm`) into the webpack graph and broke the build with an unresolvable import.

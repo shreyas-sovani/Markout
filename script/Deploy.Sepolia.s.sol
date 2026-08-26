@@ -6,90 +6,116 @@ import {console2} from "forge-std/console2.sol";
 
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
-import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
+import {HookMiner} from "../test/shared/HookMiner.sol";
+import {PositionManager} from "@uniswap/v4-periphery/src/PositionManager.sol";
+import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
+import {IAllowanceTransfer} from "@uniswap/v4-periphery/lib/permit2/src/interfaces/IAllowanceTransfer.sol";
 
 import {MarkoutHook} from "../src/MarkoutHook.sol";
 import {MarkoutRouter} from "../src/MarkoutRouter.sol";
-import {MockERC20} from "../test/mocks/MockERC20.sol";
+import {FaucetToken} from "../src/FaucetToken.sol";
 
-/// @notice Deploys the Markout stack to Sepolia: two demo tokens, PoolManager,
-/// LP helper, MarkoutHook (CREATE2-mined permission address), MarkoutRouter,
-/// then initializes the 3 bps pool at 1:1 and seeds full-range liquidity.
+/// @notice Deploys the hardened Markout stack against the CANONICAL Sepolia
+/// v4 deployment: capped faucet demo tokens, CREATE2-mined hook, hardened
+/// router (locked into the hook), canonical-periphery PositionManager +
+/// Permit2 allowances, pool initialization, and full-range liquidity seed.
 contract DeploySepolia is Script {
     using CurrencyLibrary for Currency;
 
+    // Canonical Sepolia deployment + shared infra.
+    IPoolManager internal constant CANONICAL_PM = IPoolManager(0xE03A1074c86CFeDd5C142C4F04F1a1536e203543);
+    IAllowanceTransfer internal constant PERMIT2 = IAllowanceTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3);
+    address internal constant WETH9 = 0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14;
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+    // Officially deployed canonical periphery (docs.uniswap.org v4 deployments).
+    PositionManager internal constant CANONICAL_POSMGR =
+        PositionManager(payable(0x429ba70129df741B2Ca2a85BC3A2a3328e5c09b4));
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
     uint24 internal constant FEE = 300; // 3 bps
     int24 internal constant TICK_SPACING = 60;
-    uint128 internal constant LP_LIQUIDITY = 10e18; // 10 tokens per side at 1:1
-    uint256 internal constant MINT_AMOUNT = 100e18;
+    uint256 internal constant LP_LIQUIDITY = 10e18;
+    uint256 internal constant OPERATOR_MINT = 1_000e18;
 
     function run() public {
         uint256 pk = vm.envUint("ACC3_PRIV_KEY");
         vm.startBroadcast(pk);
 
-        MockERC20 tokenA = new MockERC20();
-        MockERC20 tokenB = new MockERC20();
-        (Currency currency0, Currency currency1) = address(tokenA) < address(tokenB)
-            ? (Currency.wrap(address(tokenA)), Currency.wrap(address(tokenB)))
-            : (Currency.wrap(address(tokenB)), Currency.wrap(address(tokenA)));
+        // 1. Capped faucet demo tokens — no blacklist, no tax, capped supply,
+        //    no direct mints into the PoolManager.
+        FaucetToken tokenA = new FaucetToken("Markout Demo A", "MDA", 10_000_000e18, 100_000e18, address(CANONICAL_PM));
+        FaucetToken tokenB = new FaucetToken("Markout Demo B", "MDB", 10_000_000e18, 100_000e18, address(CANONICAL_PM));
+        (FaucetToken token0, FaucetToken token1) =
+            address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
 
-        PoolManager manager = new PoolManager(msg.sender);
-        PoolModifyLiquidityTest lpRouter = new PoolModifyLiquidityTest(IPoolManager(address(manager)));
-
+        // 2. Hook with the full v4 flag set (init + swap hooks).
         (address predictedHook, bytes32 minedSalt) = HookMiner.find(
             CREATE2_DEPLOYER,
-            uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG),
+            uint160(
+                Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG
+                    | Hooks.AFTER_SWAP_FLAG
+            ),
             type(MarkoutHook).creationCode,
-            abi.encode(address(manager))
+            abi.encode(address(CANONICAL_PM))
         );
-
-        MarkoutHook hook = new MarkoutHook{salt: minedSalt}(IPoolManager(address(manager)));
+        MarkoutHook hook = new MarkoutHook{salt: minedSalt}(CANONICAL_PM);
         require(address(hook) == predictedHook, "hook landed at wrong address");
 
-        MarkoutRouter router = new MarkoutRouter(IPoolManager(address(manager)), address(hook));
+        // 3. Router, permanently locked into the hook.
+        MarkoutRouter router = new MarkoutRouter(CANONICAL_PM, address(hook));
+        hook.initializeRouter(address(router));
+
+        // 4. Officially deployed canonical periphery PositionManager for seeding.
+        PositionManager posMgr = CANONICAL_POSMGR;
 
         PoolKey memory key = PoolKey({
-            currency0: currency0,
-            currency1: currency1,
+            currency0: Currency.wrap(address(token0)),
+            currency1: Currency.wrap(address(token1)),
             fee: FEE,
             tickSpacing: TICK_SPACING,
             hooks: IHooks(address(hook))
         });
-        manager.initialize(key, SQRT_PRICE_1_1);
 
-        // Seed liquidity: mint to the EOA, approve the LP helper (it pulls via
-        // transferFrom and settles), add a full-range position.
-        MockERC20(Currency.unwrap(currency0)).mint(msg.sender, MINT_AMOUNT);
-        MockERC20(Currency.unwrap(currency1)).mint(msg.sender, MINT_AMOUNT);
-        MockERC20(Currency.unwrap(currency0)).approve(address(lpRouter), type(uint256).max);
-        MockERC20(Currency.unwrap(currency1)).approve(address(lpRouter), type(uint256).max);
-        lpRouter.modifyLiquidity(
+        // 5. Initialize + seed through canonical periphery (Permit2-funded).
+        posMgr.initializePool(key, SQRT_PRICE_1_1);
+
+        token0.mint(msg.sender, 200e18);
+        token1.mint(msg.sender, 200e18);
+        token0.approve(address(PERMIT2), type(uint256).max);
+        token1.approve(address(PERMIT2), type(uint256).max);
+        PERMIT2.approve(address(token0), address(posMgr), type(uint160).max, type(uint48).max);
+        PERMIT2.approve(address(token1), address(posMgr), type(uint160).max, type(uint48).max);
+
+        bytes memory actions = abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR));
+        bytes[] memory params = new bytes[](2);
+        params[0] = abi.encode(
             key,
-            IPoolManager.ModifyLiquidityParams({
-                tickLower: TickMath.minUsableTick(TICK_SPACING),
-                tickUpper: TickMath.maxUsableTick(TICK_SPACING),
-                liquidityDelta: int256(uint256(LP_LIQUIDITY)),
-                salt: bytes32(0)
-            }),
+            TickMath.minUsableTick(TICK_SPACING),
+            TickMath.maxUsableTick(TICK_SPACING),
+            LP_LIQUIDITY,
+            100e18, // amount0Max
+            100e18, // amount1Max
+            msg.sender,
             new bytes(0)
         );
+        params[1] = abi.encode(key.currency0, key.currency1);
+        posMgr.modifyLiquidities(abi.encode(actions, params), block.timestamp + 1_000);
 
+        // 6. Demo float for the operator EOA (proof runs, faucet for judges
+        //    happens through the token's own permissionless capped mint).
+        token0.mint(msg.sender, OPERATOR_MINT);
+        token1.mint(msg.sender, OPERATOR_MINT);
         vm.stopBroadcast();
 
-        console2.log("token0:", Currency.unwrap(currency0));
-        console2.log("token1:", Currency.unwrap(currency1));
-        console2.log("poolManager:", address(manager));
-        console2.log("lpRouter:", address(lpRouter));
+        console2.log("token0:", address(token0));
+        console2.log("token1:", address(token1));
         console2.log("hook:", address(hook));
         console2.log("router:", address(router));
+        console2.log("positionManager:", address(posMgr));
+        console2.log("operator:", msg.sender);
     }
 }

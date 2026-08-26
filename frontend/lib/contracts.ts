@@ -1,51 +1,47 @@
-import { createPublicClient, createWalletClient, custom, http } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  custom,
+  fallback,
+  http,
+  keccak256,
+  concat,
+  pad,
+  toHex,
+} from "viem";
 import { sepolia } from "viem/chains";
-import { keccak256, concat, pad, toHex } from "viem";
 
 // ---------------------------------------------------------------------------
-// Deployment (README "Deployed & proven on Sepolia")
+// Deployment (2026-08-25 hardening run — canonical Sepolia v4)
 // ---------------------------------------------------------------------------
 
 export const CHAIN_ID = 11155111;
 
-export const HOOK = "0xe79B7Ef0Bb9984BDb614F58D2c8000CE98b180c0" as const;
-export const ROUTER = "0xcEbe3CE43db694f2313445999648B1FbbBf20890" as const;
-export const POOL_MANAGER = "0xCC5795163C3e966074b3ef091A0580C96D16E5A2" as const;
-export const TOKEN0 = "0x7e80764a88133cFC3Da52B7305044da782904667" as const;
-export const TOKEN1 = "0xCbBE82f3B6331DbE9faeAd19d3757371b059BdaE" as const;
+/** Canonical Uniswap v4 Sepolia PoolManager (docs.uniswap.org). */
+export const POOL_MANAGER = "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543" as const;
+export const HOOK = "0xAe5A786094a36475EF619956bb6F1C6089Def0c0" as const;
+export const ROUTER = "0x378f4E63f8aFf6e771EAfa95BCAf0Df6571a5ec8" as const;
+export const TOKEN0 = "0x333ACc2e37A1A1bC7eF27362eb86baC9A44b2D60" as const; // MDA
+export const TOKEN1 = "0xcf2C78DC09AD87c61D179e36A42ADCC208eb8B73" as const; // MDB
 
 export const FEE = 300n; // 3 bps
 export const TICK_SPACING = 60;
 export const SWAP_FEE_BPS = 3n;
 export const BOND_BPS = 20n;
-export const REVERSION_BPS = 5n;
 export const SETTLEMENT_DELAY = 21;
-
-// Live proof hashes (README LiveProofPack, 2026-08-25)
-export const PROOFS = {
-  refundSwap:
-    "0xd1cd9b06caa0642db79f7f1803971d94eaa5c02b38d177973058718d94ea288f",
-  refundSettle:
-    "0x4edcf5e51fec6e978631faea923c2d61bf2573950001ec596c391621abd2c245",
-  donateSwap:
-    "0x9df51053a7d222a29f4dc7e98cb695236c70df3342abf0107f85828050203165",
-  donateSettle:
-    "0xd008642604b9ae75178be4ffe033820f855e470d8dd3fe3f35fb214d4b5cb456",
-};
-
 export const MIN_SQRT_PRICE = 4295128741n; // TickMath.MIN_SQRT_PRICE + 1
 export const MAX_SQRT_PRICE =
   1461446703485210103287273052203988822378723970340n; // MAX - 1
 
-export const POOL_KEY = [
-  TOKEN0,
-  TOKEN1,
-  FEE,
-  TICK_SPACING,
-  HOOK,
-] as const;
+export const POOL_KEY = {
+  currency0: TOKEN0,
+  currency1: TOKEN1,
+  fee: Number(FEE),
+  tickSpacing: TICK_SPACING,
+  hooks: HOOK,
+} as const;
 
-// PoolId = keccak256(abi.encode(PoolKey)) — five 32-byte words.
+// PoolId = keccak256(abi.encode(PoolKey)) — five padded 32-byte words.
 export const POOL_ID = keccak256(
   concat([
     pad(TOKEN0.toLowerCase() as `0x${string}`),
@@ -56,11 +52,30 @@ export const POOL_ID = keccak256(
   ]),
 );
 
-// v4 StateLibrary: pools mapping lives at slot 6 in PoolManager;
-// pools[poolId].slot0 = keccak256(abi.encodePacked(poolId, bytes32(uint256(6)))).
+// v4 StateLibrary: pools mapping at slot 6; slot0 =
+// keccak256(abi.encodePacked(poolId, bytes32(uint256(6)))).
 export const SLOT0_SLOT = keccak256(
   concat([POOL_ID, pad(toHex(6, { size: 32 }))]),
 );
+
+// Live proof pack (2026-08-25, canonical PoolManager).
+export const PROOFS = {
+  refundSwap: "0x4b87d0977fafd0fa5c52db43da0ef6fc9c098f5505062cd09ff008f395d03a3c",
+  refundSettle: "0x8fd15231c33b14be26a25eba5748ca75bc23bbb0092d0bb770ff16376c5a947c",
+  refundClaim: "0xa356141e7c1aba9eee2a412c4b2dab2a9a0022aae2d487842f7bb4c217eadac8",
+  donateSwap: "0x77367000e31292cbb172c073df21282c27204a09338b9cc78cb485c938d6ffdf",
+  donateSettle: "0x50f3975935f6e6998dc82b50fd4b0285323ccdea6af37bc36b10998e0fb8121c",
+  donateFlush: "0x66cb790a750a8064d44257addb106f934474038b043369ae1712347bea8050d0",
+};
+
+// Event topics (keccak of signatures).
+export const TOPICS = {
+  swapBonded:
+    "0x5d6006d8592645dcc3aeb6a498b78121ff39f7993c9179e6444921228d7c4b51",
+  settled: "0x6c52fe296327271b634ad6076ce552d2fb661a4e996661f45c000f218f52e74e",
+  refundClaimed:
+    "0xe950d47bcc1a745a8ef1d8b86486b400a99681910425d126eb1a006d61f341b2",
+} as const;
 
 // ---------------------------------------------------------------------------
 // ABIs
@@ -139,7 +154,8 @@ export const ROUTER_ABI = [
           { name: "sqrtPriceLimitX96", type: "uint160" },
         ],
       },
-      { name: "hookData", type: "bytes" },
+      { name: "minAmountOut", type: "uint256" },
+      { name: "deadline", type: "uint256" },
     ],
     outputs: [{ name: "delta", type: "int256" }],
   },
@@ -151,6 +167,20 @@ export const HOOK_ABI = [
     name: "settle",
     stateMutability: "nonpayable",
     inputs: [{ name: "tradeId", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "claimRefund",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "tradeId", type: "bytes32" }],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "flushDonation",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "poolId", type: "bytes32" }],
     outputs: [],
   },
   {
@@ -169,10 +199,18 @@ export const HOOK_ABI = [
   },
   {
     type: "function",
-    name: "lastTradeId",
+    name: "previewTrade",
     stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "bytes32" }],
+    inputs: [{ name: "tradeId", type: "bytes32" }],
+    outputs: [
+      { name: "pre", type: "int24" },
+      { name: "post", type: "int24" },
+      { name: "windowAvg", type: "int24" },
+      { name: "reversionBps", type: "int256" },
+      { name: "expectedOutcome", type: "uint8" },
+      { name: "outcome", type: "uint8" },
+      { name: "refundClaimed", type: "bool" },
+    ],
   },
   {
     type: "function",
@@ -184,25 +222,40 @@ export const HOOK_ABI = [
         name: "trade",
         type: "tuple",
         components: [
-          { name: "key", type: "tuple", components: [
-            { name: "currency0", type: "address" },
-            { name: "currency1", type: "address" },
-            { name: "fee", type: "uint24" },
-            { name: "tickSpacing", type: "int24" },
-            { name: "hooks", type: "address" },
-          ]},
+          {
+            name: "key",
+            type: "tuple",
+            components: [
+              { name: "currency0", type: "address" },
+              { name: "currency1", type: "address" },
+              { name: "fee", type: "uint24" },
+              { name: "tickSpacing", type: "int24" },
+              { name: "hooks", type: "address" },
+            ],
+          },
           { name: "trader", type: "address" },
           { name: "bondCurrency", type: "address" },
           { name: "bondAmount", type: "uint256" },
-          { name: "sqrtPre", type: "uint160" },
-          { name: "sqrtPost", type: "uint160" },
+          { name: "preTick", type: "int24" },
+          { name: "postTick", type: "int24" },
           { name: "bondTime", type: "uint32" },
           { name: "settleAfter", type: "uint32" },
           { name: "tickCumulativeAtBond", type: "int56" },
           { name: "outcome", type: "uint8" },
+          { name: "refundClaimed", type: "bool" },
         ],
       },
     ],
+  },
+  {
+    type: "function",
+    name: "pendingDonation",
+    stateMutability: "view",
+    inputs: [
+      { name: "poolId", type: "bytes32" },
+      { name: "index", type: "uint8" },
+    ],
+    outputs: [{ type: "uint256" }],
   },
   {
     type: "event",
@@ -210,8 +263,8 @@ export const HOOK_ABI = [
     inputs: [
       { name: "tradeId", type: "bytes32", indexed: true },
       { name: "trader", type: "address", indexed: true },
-      { name: "sqrtPre", type: "uint160", indexed: false },
-      { name: "sqrtPost", type: "uint160", indexed: false },
+      { name: "preTick", type: "int24", indexed: false },
+      { name: "postTick", type: "int24", indexed: false },
       { name: "bondAmount", type: "uint256", indexed: false },
     ],
   },
@@ -221,7 +274,16 @@ export const HOOK_ABI = [
     inputs: [
       { name: "tradeId", type: "bytes32", indexed: true },
       { name: "outcome", type: "uint8", indexed: false },
-      { name: "sqrtAtSettlement", type: "uint160", indexed: false },
+      { name: "windowAvgTick", type: "int24", indexed: false },
+      { name: "bondAmount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "RefundClaimed",
+    inputs: [
+      { name: "tradeId", type: "bytes32", indexed: true },
+      { name: "trader", type: "address", indexed: true },
       { name: "bondAmount", type: "uint256", indexed: false },
     ],
   },
@@ -237,20 +299,23 @@ export const POOL_MANAGER_ABI = [
   },
 ] as const;
 
-// keccak256("Settled(bytes32,uint8,uint160,uint256)")
-export const SETTLED_TOPIC =
-  "0x1b564febf951708ff47de44a9c52e3c941ae57275c4e30ceb8fe68387db3e043";
-
 // ---------------------------------------------------------------------------
-// Clients
+// Clients — fallback transport for RPC resilience
 // ---------------------------------------------------------------------------
 
-export const RPC_URL =
-  process.env.NEXT_PUBLIC_SEPOLIA_RPC ?? "https://ethereum-sepolia-rpc.publicnode.com";
+export const RPC_URLS = [
+  process.env.NEXT_PUBLIC_SEPOLIA_RPC,
+  "https://ethereum-sepolia-rpc.publicnode.com",
+  "https://sepolia.drpc.org",
+  "https://1rpc.io/sepolia",
+].filter(Boolean) as string[];
 
 export const publicClient = createPublicClient({
   chain: sepolia,
-  transport: http(RPC_URL),
+  transport: fallback(
+    RPC_URLS.map((url) => http(url, { timeout: 8_000 })),
+    { rank: false },
+  ),
 });
 
 export function walletClientFrom(ethProvider: unknown) {
@@ -265,8 +330,11 @@ export function walletClientFrom(ethProvider: unknown) {
 // ---------------------------------------------------------------------------
 
 export function sqrtX96ToPrice(sqrtX96: bigint): number {
-  // price = (sqrtX96 / 2^96)^2, token1 per token0
   return Number((sqrtX96 * sqrtX96) / (1n << 160n)) / Number(1n << 32n);
+}
+
+export function tickToPrice(tick: number | bigint): number {
+  return Math.pow(1.0001, Number(tick));
 }
 
 export function formatTokens(wei: bigint, decimals = 4): string {
@@ -287,18 +355,21 @@ export function explorerTx(hash: string): string {
 /** eth_getLogs chunked — public RPCs cap block range (publicnode: 50k). */
 export async function getLogsChunked(args: {
   address: `0x${string}`;
-  event: unknown; // parseAbiItem result
+  event: unknown;
   args?: Record<string, unknown>;
   fromBlock: bigint;
   toBlock: bigint;
-}): Promise<unknown[]> {
+}): Promise<
+  { blockNumber: bigint; transactionHash: `0x${string}`; data: `0x${string}`; topics: `0x${string}`[] }[]
+> {
   const MAX = 49_000n;
-  const out: unknown[] = [];
-  for (
-    let from = args.fromBlock;
-    from <= args.toBlock;
-    from += MAX
-  ) {
+  const out: {
+    blockNumber: bigint;
+    transactionHash: `0x${string}`;
+    data: `0x${string}`;
+    topics: `0x${string}`[];
+  }[] = [];
+  for (let from = args.fromBlock; from <= args.toBlock; from += MAX) {
     const to = from + MAX - 1n > args.toBlock ? args.toBlock : from + MAX - 1n;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const logs = await (publicClient as any).getLogs({
@@ -308,8 +379,22 @@ export async function getLogsChunked(args: {
       fromBlock: from,
       toBlock: to,
     });
-    out.push(...(logs as unknown[]));
+    out.push(...logs);
     if (to >= args.toBlock) break;
   }
   return out;
 }
+
+export type TradeRow = {
+  id: `0x${string}`;
+  trader: string;
+  bondCurrency: string;
+  bondAmount: bigint;
+  preTick: number;
+  postTick: number;
+  bondTime: bigint;
+  settleAfter: bigint;
+  outcome: number; // 0 open, 1 refund-pending, 2 donated
+  refundClaimed: boolean;
+  txHash: `0x${string}`;
+};

@@ -2,54 +2,49 @@
 
 ## Ownership
 
-Verification suite for the Markout protocol contracts in `src/`.
+Verification suites for the Markout protocol contracts in `src/`.
 
 ## Purpose
 
-Two suites:
+Four suites, 43 tests total:
 
-- `MarkoutEngine.t.sol` — pure unit tests of the mean-reversion classifier (refund/donate boundaries in price space).
-- `Markout.t.sol` — full-stack integration tests: real `PoolManager`, CREATE2-mined hook address, real swaps through `MarkoutRouter`, permissionless third-party settlement past the time window, and TWAP integrity tests (spot-game immunity, held reversion).
+- `MarkoutEngine.t.sol` (10) — unit + fuzz tests of the normalized reversion classifier: 50% frontier boundaries in both directions, zero impact, overshoot, tiny fully-reverted trades, large-trade noise, `reversionBps`, formula-vs-reference fuzz, monotonicity-toward-pre fuzz.
+- `Markout.t.sol` (27) — integration + attack tests on a real `PoolManager` with a CREATE2-mined hook: golden refund/donate paths (settle → claim / settle → flush), window + replay + claim guards, spot games, held reversion, zero impact, last-look post-window shove, delayed-settlement outcome equality (refund and donate, with heavy accumulator churn between), history pruning, zero-liquidity donation deferral + reseed + flush, claim reentrancy (`ReenterRefundToken`), spoofed-router + router-lock, hostile-token retryable refunds, native-currency end-to-end (bond escrow, claim, donate flush), router deadline/slippage, exact-out bond math, preview projection/finalization, pool-config rejection, receipt-surface removal.
+- `MarkoutFuzz.t.sol` (4 invariants, 256 runs × 500 calls) — handler-based economic invariants: escrow conservation (balances == liabilities per currency), liability identity (open + unclaimed-refund + pending-donation), verdict immutability, bounded per-trade release.
+- `MarkoutFork.t.sol` (2) — canonical-Sepolia fork: full lifecycle (init via official PositionManager, Permit2-funded MINT_POSITION + SETTLE_PAIR seeding, exact-in and exact-out swaps, Refund settle + claim, Donate settle + flush) against the real canonical PoolManager `0xE03A…3543` and official PositionManager `0x429ba7…09b4`.
 
 ## What This Controls
 
-These tests are the only executable spec of the behavioral guarantees (bond = 20 bps of balanceDelta-derived amountIn, refund on reversion, donate on sustain, window/replay guards, SwapTooSmall, oracle manipulation resistance). Regressions in `src/` surface here.
+These tests are the only executable spec of the behavioral guarantees. Regressions in `src/` surface here; the fork suite specifically guards canonical-integration truth (action encodings, Permit2 flow, currency ordering).
 
 ## Connections
 
-- Depends on: everything in `src/`, `lib/v4-core` (`PoolManager`, `PoolModifyLiquidityTest`, `TickMath`, `Hooks`, `StateLibrary`), `lib/v4-periphery/test/shared/HookMiner.sol`, `test/mocks/MockERC20.sol`.
+- Depends on: everything in `src/`, `lib/v4-core` (PoolManager, `PoolModifyLiquidityTest`, TickMath, Hooks, StateLibrary), `test/shared/HookMiner.sol` (vendored), `test/mocks/{MockERC20,ReenterRefundToken}.sol`, canonical Sepolia RPC (fork, default publicnode, override `SEP_RPC_URL`).
 - Depended on by: nothing; entry point is `forge test`.
 
 ## Current State
 
-16/16 passing (`forge test`): 6 engine + 10 integration.
+43/43 passing (`forge test`), including invariants (256 runs) and the canonical fork suite.
 
 ## Decision Log
 
-### 2026-08-24 — undeliverable-refund + quoting tests
-- **Change**: `refundUndeliverable_donates` (MockERC20 gained a per-recipient `setBlocked`; blocked trader ⇒ refund verdict but bond lands in the PoolManager, escrow 0) and `bondFor_quotes` (1e18→2e15, 499→0, 500→1).
-- **Reasoning**: one observable behavior per test, public interface only. First attempt used a global transfer freeze — wrong model: a globally frozen token blocks the donate pay-in too, so nothing sane can happen; the real vector is recipient blacklists (trader blocked, pool not).
-- **Task/session**: hardening session 2026-08-24.
+### 2026-08-25 — full rewrite for the hardened protocol
+- **Change**: all four suites written for the v2 protocol (fixed-window oracle, normalized classifier, pull refunds, deferred donations, locked router, native support). New mocks: `ReenterRefundToken` (reenters `claimRefund` mid-transfer). HookMiner vendored to `test/shared/` after the periphery submodule was pinned back to `4d85e04` (era-matched to v4-core v4.0.0; upstream had deleted the file).
+- **Reasoning**: every hardening claim needs a witness: last-look equality, delayed-settlement equality, reentrancy-blocked claims, spoofed-router rejection, hostile-token retry, zero-liquidity deferral, native paths, escrow conservation.
+- **Rejected alternative(s)**: keeping the v1 suite shape (asserted push-refunds and 6909 receipts — both removed); invariant handlers that catch expected reverts (poisons runs — guards skip pruned-history settles and unripe windows instead).
+- **Task/session**: prize hardening, 2026-08-25.
 
-### 2026-08-23 — suite for permissionless settlement + TWAP
-- **Change**: settlement invoked by a random third party (`settler`) with `vm.warp` past the window; new tests `settleWindowOpen_reverts`, `settle_replay_reverts`, `spotGames_ignored` (micro shove+restore in one block after a poke — invisible to the accumulator), `twap_honorsSustainedReversion` (early reversion held across the window ⇒ Refund).
-- **Reasoning**: tests must assert the trust model — anyone settles, only after T, and only time-weighted state matters.
-- **Rejected alternative(s)**: an "instant tail-shove must not flip" test — it failed *correctly*: a shove that dominates the window average is a sustained reversion by definition. Replaced with the honest spot-game/held-reversion pair.
-- **Task/session**: hardening session 2026-08-23.
-
-### 2026-08-17 — initial suite
-- **Change**: engine unit tests + integration suite + `mocks/MockERC20.sol`.
-- **Reasoning / rejected alternatives**:
-  - Test names follow root AGENTS.md §4 conventions (`organicQuiet_refundsBond`, `exactOut_chargesInputBondAndFillsOutput`, `swapTooSmall_reverts`).
-  - Hook deployed via CREATE2 with HookMiner salt carrying permission bits.
-  - `test_swapTooSmall_reverts` uses generic `expectRevert()` because v4 wraps hook reverts (ERC-7751). Rejected: matching the wrapped selector (brittle).
-  - Boundary test computes integer sqrt via inline Newton iteration — v4.0.0 ships no sqrt helper (checked).
-- **Task/session**: initial build session, 2026-08-17.
+### Earlier history (condensed)
+- 2026-08-24: undeliverable-refund + quoting tests (superseded by hostile-token retry test). 2026-08-23: permissionless-settle + TWAP tests (superseded). 2026-08-17: initial engine + integration suites, `mocks/MockERC20.sol`, CREATE2 hook via HookMiner, wrapped-revert matching (ERC-7751).
 
 ## Known Gotchas
 
-- `sqrtPriceLimitX96` must be `MIN_SQRT_PRICE+1` (zeroForOne) or `MAX_SQRT_PRICE-1` — zero reverts with `PriceLimitOutOfBounds`.
-- Refund-expected swaps must move the price by ≫5 bps and the reverse swap must restore it beyond 5 bps from post; near-threshold sizes flake on fee rounding.
-- `hook.trades(tradeId)` getter destructure: 10 components, last is `MarkoutHook.Outcome` (cast to uint8 for assertEq).
-- The arbitrageur's reverse swap also bonds — assert only on the first trade's outcome, and remember the arber's bond sits in the *opposite* currency.
-- Warp past the window before any settle; use an unrelated `settler` address to prove permissionlessness.
+- **`vm.warp(block.timestamp + n)` inside loops does not accumulate** in this forge version — `block.timestamp` in the argument stays stale, so every iteration warps to the same timestamp. Keep a local `t` accumulator and `vm.warp(t)`; this silently neutered the delayed-settlement and pruning tests until caught.
+- v4 `getTickAtSqrtPrice` floors: sub-tick *downward* moves report −1; zero-tick-impact setups must swap upward (see `test_zeroImpact_refunds`), and the pool must be deepened first (`_seedLiquidity(key, 9999e18)`).
+- `_seedLiquidity` mints `liquidity + 1e18` per side — pass large liquidity values safely.
+- `trades()` destructuring = exactly 11 slots; nested `key` counts as one.
+- forge-std here: `FuzzSelector{addr, selectors}` (array, not single `selector`); handlers extending only `StdUtils` need their own `Vm` constant (`makeAddr` also unavailable there — use literal addresses).
+- Struct-returning external getters (`hook.trades`) decode as named objects through viem but as tuples in Solidity — property access in TS, positional slots in .t.sol.
+- Old-periphery PositionManager needs an explicit `SETTLE_PAIR` action after `MINT_POSITION` (newer periphery auto-settles — action encodings differ across eras; the fork suite pins the official Sepolia deployment's behavior empirically).
+- Fork tests need network; `SEP_RPC_URL` overrides the default publicnode endpoint.
+- Warp-past-window before settling; use an unrelated `settler` to prove permissionlessness; the arber's reverse swap also bonds (in the *opposite* currency).

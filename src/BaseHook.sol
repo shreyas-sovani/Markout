@@ -30,24 +30,32 @@ abstract contract BaseHook is IHooks {
                 && permissions.beforeSwap == Hooks.hasPermission(IHooks(hookAddress), Hooks.BEFORE_SWAP_FLAG)
                 && permissions.afterSwap == Hooks.hasPermission(IHooks(hookAddress), Hooks.AFTER_SWAP_FLAG)
                 && permissions.beforeDonate == Hooks.hasPermission(IHooks(hookAddress), Hooks.BEFORE_DONATE_FLAG)
-                && permissions.afterDonate == Hooks.hasPermission(IHooks(hookAddress), Hooks.AFTER_DONATE_FLAG),
+                && permissions.afterDonate == Hooks.hasPermission(IHooks(hookAddress), Hooks.AFTER_DONATE_FLAG)
+                && permissions.beforeSwapReturnDelta
+                    == Hooks.hasPermission(IHooks(hookAddress), Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG)
+                && permissions.afterSwapReturnDelta
+                    == Hooks.hasPermission(IHooks(hookAddress), Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG)
+                && permissions.afterAddLiquidityReturnDelta
+                    == Hooks.hasPermission(IHooks(hookAddress), Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG)
+                && permissions.afterRemoveLiquidityReturnDelta
+                    == Hooks.hasPermission(IHooks(hookAddress), Hooks.AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG),
             "hook address flags mismatch permissions"
         );
     }
 
     function getHookPermissions() public view virtual returns (Hooks.Permissions memory);
 
-    function _beforeInitialize(address, PoolKey calldata, uint160) internal pure returns (bytes4) {
+    function _beforeInitialize(address, PoolKey calldata, uint160) internal virtual returns (bytes4) {
         return IHooks.beforeInitialize.selector;
     }
 
-    function _afterInitialize(address, PoolKey calldata, uint160, int24) internal pure returns (bytes4) {
+    function _afterInitialize(address, PoolKey calldata, uint160, int24) internal virtual returns (bytes4) {
         return IHooks.afterInitialize.selector;
     }
 
     function _beforeAddLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, bytes calldata)
         internal
-        pure
+        virtual
         returns (bytes4)
     {
         return IHooks.beforeAddLiquidity.selector;
@@ -60,7 +68,7 @@ abstract contract BaseHook is IHooks {
         BalanceDelta,
         BalanceDelta,
         bytes calldata
-    ) internal pure returns (bytes4, BalanceDelta) {
+    ) internal virtual returns (bytes4, BalanceDelta) {
         return (IHooks.afterAddLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
     }
 
@@ -69,7 +77,7 @@ abstract contract BaseHook is IHooks {
         PoolKey calldata,
         IPoolManager.ModifyLiquidityParams calldata,
         bytes calldata
-    ) internal pure returns (bytes4) {
+    ) internal virtual returns (bytes4) {
         return IHooks.beforeRemoveLiquidity.selector;
     }
 
@@ -80,13 +88,13 @@ abstract contract BaseHook is IHooks {
         BalanceDelta,
         BalanceDelta,
         bytes calldata
-    ) internal pure returns (bytes4, BalanceDelta) {
+    ) internal virtual returns (bytes4, BalanceDelta) {
         return (IHooks.afterRemoveLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
     }
 
     function _beforeSwap(address, PoolKey calldata, IPoolManager.SwapParams calldata, bytes calldata)
         internal
-        pure
+        virtual
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
@@ -94,17 +102,25 @@ abstract contract BaseHook is IHooks {
 
     function _afterSwap(address, PoolKey calldata, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata)
         internal
-        pure
+        virtual
         returns (bytes4, int128)
     {
         return (IHooks.afterSwap.selector, 0);
     }
 
-    function _beforeDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) internal pure returns (bytes4) {
+    function _beforeDonate(address, PoolKey calldata, uint256, uint256, bytes calldata)
+        internal
+        virtual
+        returns (bytes4)
+    {
         return IHooks.beforeDonate.selector;
     }
 
-    function _afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) internal pure returns (bytes4) {
+    function _afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata)
+        internal
+        virtual
+        returns (bytes4)
+    {
         return IHooks.afterDonate.selector;
     }
 

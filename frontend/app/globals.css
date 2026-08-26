@@ -782,3 +782,181 @@ footer.site {
     transition: none;
   }
 }
+
+/* ------------------------------------------------ v2 additions */
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--green);
+  color: var(--green-ink);
+  padding: 8px 14px;
+  z-index: 100;
+}
+.skip-link:focus {
+  left: 8px;
+}
+
+.warn-chip {
+  color: var(--amber);
+  border-color: #6b5320;
+}
+
+.slip-input {
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 2px;
+}
+
+.demo-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.btn-demo {
+  background: transparent;
+  border: 1px dashed var(--line-bright);
+  color: var(--dim);
+  font-size: 11px;
+}
+.btn-demo.refund:hover:not(:disabled) {
+  color: var(--green);
+  border-color: var(--green);
+  background: var(--green-dim);
+}
+.btn-demo.donate:hover:not(:disabled) {
+  color: var(--amber);
+  border-color: #6b5320;
+  background: var(--amber-dim);
+}
+
+.row-active td {
+  background: rgba(67, 217, 154, 0.04);
+}
+
+/* ------------------------------------------------ price memory tape */
+
+.tape-wrap {
+  border: 1px solid var(--line);
+  background: var(--bg-raise);
+  margin: 14px 0;
+  padding: 6px 4px 2px;
+}
+
+.tape {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.tape-window {
+  fill: rgba(67, 217, 154, 0.05);
+  stroke: var(--line);
+  stroke-dasharray: 3 3;
+}
+
+.tape-pre {
+  stroke: var(--dim);
+  stroke-width: 1;
+}
+
+.tape-post {
+  stroke: var(--text);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.tape-frontier {
+  stroke: var(--green);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.tape-avg line {
+  stroke: var(--text);
+  stroke-width: 2;
+}
+.tape-avg circle {
+  fill: var(--text);
+}
+.tape-avg.refund line,
+.tape-avg.refund circle {
+  stroke: var(--green);
+  fill: var(--green);
+}
+.tape-avg.donate line,
+.tape-avg.donate circle {
+  stroke: var(--amber);
+  fill: var(--amber);
+}
+
+.tape-live circle {
+  fill: var(--green);
+}
+
+.tape-label {
+  fill: var(--dim);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+}
+.tape-label.green {
+  fill: var(--green);
+}
+
+.tape-verdict {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+}
+.tape-verdict.refund {
+  fill: var(--green);
+}
+.tape-verdict.donate {
+  fill: var(--amber);
+}
+
+/* ------------------------------------------------ focus + mobile */
+
+:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+@media (max-width: 680px) {
+  table.hist,
+  table.hist thead,
+  table.hist tbody,
+  table.hist tr,
+  table.hist td {
+    display: block;
+  }
+  table.hist thead {
+    display: none;
+  }
+  table.hist tr {
+    border: 1px solid var(--line);
+    margin: 8px 0;
+    padding: 6px 10px;
+  }
+  table.hist td {
+    border: none;
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+  }
+  table.hist td::before {
+    content: attr(data-label);
+    color: var(--faint);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+}

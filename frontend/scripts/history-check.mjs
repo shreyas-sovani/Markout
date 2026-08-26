@@ -1,9 +1,12 @@
-// Sanity check of the UI history pipeline: getLogs(SwapBonded, trader) + multicall(trades).
-import { createPublicClient, http, parseAbiItem, decodeEventLog } from "viem";
+// Sanity check of the UI history pipeline against the v2 deployment:
+// chunked getLogs(SwapBonded, trader) + multicall(trades) with property access.
+import { createPublicClient, http, fallback, parseAbiItem, decodeEventLog } from "viem";
 import { sepolia } from "viem/chains";
 
-const HOOK = "0xe79B7Ef0Bb9984BDb614F58D2c8000CE98b180c0";
+const HOOK = "0xAe5A786094a36475EF619956bb6F1C6089Def0c0";
 const TRADER = "0xFeAf5C921996FC53f4DEf35e181E766e6D74690A";
+const RPCS = ["https://ethereum-sepolia-rpc.publicnode.com", "https://sepolia.drpc.org"];
+
 const HOOK_ABI_EVENT = [
   {
     type: "event",
@@ -11,8 +14,8 @@ const HOOK_ABI_EVENT = [
     inputs: [
       { name: "tradeId", type: "bytes32", indexed: true },
       { name: "trader", type: "address", indexed: true },
-      { name: "sqrtPre", type: "uint160", indexed: false },
-      { name: "sqrtPost", type: "uint160", indexed: false },
+      { name: "preTick", type: "int24", indexed: false },
+      { name: "postTick", type: "int24", indexed: false },
       { name: "bondAmount", type: "uint256", indexed: false },
     ],
   },
@@ -43,12 +46,13 @@ const TRADES_ABI = [
           { name: "trader", type: "address" },
           { name: "bondCurrency", type: "address" },
           { name: "bondAmount", type: "uint256" },
-          { name: "sqrtPre", type: "uint160" },
-          { name: "sqrtPost", type: "uint160" },
+          { name: "preTick", type: "int24" },
+          { name: "postTick", type: "int24" },
           { name: "bondTime", type: "uint32" },
           { name: "settleAfter", type: "uint32" },
           { name: "tickCumulativeAtBond", type: "int56" },
           { name: "outcome", type: "uint8" },
+          { name: "refundClaimed", type: "bool" },
         ],
       },
     ],
@@ -57,18 +61,19 @@ const TRADES_ABI = [
 
 const client = createPublicClient({
   chain: sepolia,
-  transport: http("https://ethereum-sepolia-rpc.publicnode.com"),
+  transport: fallback(RPCS.map((u) => http(u))),
 });
 
 const head = await client.getBlockNumber();
+const from = head > 49000n ? head - 49000n : 0n;
 const logs = await client.getLogs({
   address: HOOK,
   event: parseAbiItem(
-    "event SwapBonded(bytes32 indexed tradeId, address indexed trader, uint160 sqrtPre, uint160 sqrtPost, uint256 bondAmount)",
+    "event SwapBonded(bytes32 indexed tradeId, address indexed trader, int24 preTick, int24 postTick, uint256 bondAmount)",
   ),
   args: { trader: TRADER },
-  fromBlock: head > 49000n ? head - 49000n : 0n,
-  toBlock: "latest",
+  fromBlock: from,
+  toBlock: head,
 });
 
 const rows = [...logs]
@@ -78,6 +83,11 @@ const rows = [...logs]
     const d = decodeEventLog({ abi: HOOK_ABI_EVENT, data: l.data, topics: l.topics });
     return { id: d.args.tradeId, bond: d.args.bondAmount, tx: l.transactionHash };
   });
+
+if (rows.length === 0) {
+  console.log("no SwapBonded events for trader in window");
+  process.exit(0);
+}
 
 const results = await client.multicall({
   contracts: rows.map((r) => ({
@@ -90,11 +100,12 @@ const results = await client.multicall({
 });
 
 rows.forEach((r, i) => {
-  const outcome = Number(results[i].outcome);
+  const t = results[i];
+  const outcome = Number(t.outcome);
   console.log(
     r.id.slice(0, 18) + "…",
     "bond " + r.bond.toString(),
     "outcome",
-    outcome === 1 ? "REFUND" : outcome === 2 ? "DONATE" : "pending",
+    outcome === 1 ? (t.refundClaimed ? "REFUNDED" : "REFUND-claimable") : outcome === 2 ? "DONATE" : "open",
   );
 });
