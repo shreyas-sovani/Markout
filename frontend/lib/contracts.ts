@@ -19,16 +19,16 @@ export const CHAIN_ID = 11155111;
 
 /** Canonical Uniswap v4 Sepolia PoolManager (docs.uniswap.org). */
 export const POOL_MANAGER = "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543" as const;
-export const HOOK = "0xAe5A786094a36475EF619956bb6F1C6089Def0c0" as const;
-export const ROUTER = "0x378f4E63f8aFf6e771EAfa95BCAf0Df6571a5ec8" as const;
-export const TOKEN0 = "0x333ACc2e37A1A1bC7eF27362eb86baC9A44b2D60" as const; // MDA
-export const TOKEN1 = "0xcf2C78DC09AD87c61D179e36A42ADCC208eb8B73" as const; // MDB
+export const HOOK = "0x027C6cfD540f0446641846cd004b41561EEd70cC" as const;
+export const ROUTER = "0x41Fd0B2B581C5F59d468D272dbfcc26e595383CF" as const;
+export const TOKEN0 = "0x7B0B6aF2271Cb2f7500365f5a80dB18F9666c315" as const; // MDA
+export const TOKEN1 = "0xf3df97cf05D6eFc92cF211440381586b8B86eD76" as const; // MDB
 
 export const FEE = 300n; // 3 bps
 export const TICK_SPACING = 60;
 export const SWAP_FEE_BPS = 3n;
 export const BOND_BPS = 20n;
-export const SETTLEMENT_DELAY = 21;
+export const SETTLEMENT_DELAY = 24;
 export const MIN_SQRT_PRICE = 4295128741n; // TickMath.MIN_SQRT_PRICE + 1
 export const MAX_SQRT_PRICE =
   1461446703485210103287273052203988822378723970340n; // MAX - 1
@@ -58,14 +58,14 @@ export const SLOT0_SLOT = keccak256(
   concat([POOL_ID, pad(toHex(6, { size: 32 }))]),
 );
 
-// Live proof pack (2026-08-25, canonical PoolManager).
+// Live proof pack (2026-08-27 cut, canonical PoolManager): 1:1 next-block
+// reversion refunds at settle (no claim tx needed); reversal trade donates.
 export const PROOFS = {
-  refundSwap: "0x4b87d0977fafd0fa5c52db43da0ef6fc9c098f5505062cd09ff008f395d03a3c",
-  refundSettle: "0x8fd15231c33b14be26a25eba5748ca75bc23bbb0092d0bb770ff16376c5a947c",
-  refundClaim: "0xa356141e7c1aba9eee2a412c4b2dab2a9a0022aae2d487842f7bb4c217eadac8",
-  donateSwap: "0x77367000e31292cbb172c073df21282c27204a09338b9cc78cb485c938d6ffdf",
-  donateSettle: "0x50f3975935f6e6998dc82b50fd4b0285323ccdea6af37bc36b10998e0fb8121c",
-  donateFlush: "0x66cb790a750a8064d44257addb106f934474038b043369ae1712347bea8050d0",
+  refundSwap: "0xb6308958d2a9e6b37fcc433c63e37c2a5a73468ecb0d44d7a74018b992ee903f",
+  refundSettle: "0xda16e75a54e340692774f1405158a5870737b6e33df6400835db1fa6600ddc49",
+  donateSwap: "0x530304aac8bbc0997a96a3dab9e5a21923b30127793b4836c99e47de5f6dc141",
+  donateSettle: "0xbda1222053c34f4b281082df0b139c04668d8fe8f15238d490d288bc277bfe66",
+  donateFlush: "0x064234ab4a6dbd357a674cc480e2de5fc1a4a2de83f4e4e3da7af5cd2c66a3e5",
 };
 
 // Event topics (keccak of signatures).

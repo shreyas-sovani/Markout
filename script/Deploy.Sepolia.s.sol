@@ -52,12 +52,12 @@ contract DeploySepolia is Script {
         (FaucetToken token0, FaucetToken token1) =
             address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
 
-        // 2. Hook with the full v4 flag set (init + swap hooks).
+        // 2. Hook with the full v4 flag set (init + swap + delta-return hooks).
         (address predictedHook, bytes32 minedSalt) = HookMiner.find(
             CREATE2_DEPLOYER,
             uint160(
                 Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG
-                    | Hooks.AFTER_SWAP_FLAG
+                    | Hooks.AFTER_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
             ),
             type(MarkoutHook).creationCode,
             abi.encode(address(CANONICAL_PM))
@@ -65,9 +65,8 @@ contract DeploySepolia is Script {
         MarkoutHook hook = new MarkoutHook{salt: minedSalt}(CANONICAL_PM);
         require(address(hook) == predictedHook, "hook landed at wrong address");
 
-        // 3. Router, permanently locked into the hook.
-        MarkoutRouter router = new MarkoutRouter(CANONICAL_PM, address(hook));
-        hook.initializeRouter(address(router));
+        // 3. Convenience router (NOT a gate — the bond rides the swap delta).
+        MarkoutRouter router = new MarkoutRouter(CANONICAL_PM);
 
         // 4. Officially deployed canonical periphery PositionManager for seeding.
         PositionManager posMgr = CANONICAL_POSMGR;

@@ -3,7 +3,7 @@
 import { createPublicClient, http, fallback, parseAbiItem, decodeEventLog } from "viem";
 import { sepolia } from "viem/chains";
 
-const HOOK = "0xAe5A786094a36475EF619956bb6F1C6089Def0c0";
+const HOOK = "0x027C6cfD540f0446641846cd004b41561EEd70cC";
 const TRADER = "0xFeAf5C921996FC53f4DEf35e181E766e6D74690A";
 const RPCS = ["https://ethereum-sepolia-rpc.publicnode.com", "https://sepolia.drpc.org"];
 
@@ -106,6 +106,6 @@ rows.forEach((r, i) => {
     r.id.slice(0, 18) + "…",
     "bond " + r.bond.toString(),
     "outcome",
-    outcome === 1 ? (t.refundClaimed ? "REFUNDED" : "REFUND-claimable") : outcome === 2 ? "DONATE" : "open",
+    outcome === 1 ? "REFUNDED" : outcome === 2 ? "REFUND-pending" : outcome === 3 ? "DONATE" : "open",
   );
 });

@@ -50,7 +50,7 @@ const SWAP_BONDED_EVENT = parseAbiItem(
 );
 const MINT_SIZE = 100n * 10n ** 18n;
 const DEMO_BUY = 1n * 10n ** 18n;
-const DEMO_OVERSHOOT = 22n * 10n ** 17n; // 2.2e18 — overshoot reversal
+const DEMO_REVERSE = 1n * 10n ** 18n; // 1:1 next-block reversion — enough at T=24
 
 function short(addr: string, n = 4): string {
   return `${addr.slice(0, 2 + n)}…${addr.slice(-n)}`;
@@ -551,8 +551,10 @@ export default function Page() {
       }
       toast.success(
         outcome === 1
-          ? "Verdict: REFUND-PENDING — claim the bond (pull-based, anyone can call)."
-          : "Verdict: DONATE — bond deferred to the LP distribution bucket.",
+          ? "Verdict: REFUND — bond paid to the trader at settlement."
+          : outcome === 2
+            ? "Verdict: REFUND — delivery failed; claimRefund retries."
+            : "Verdict: DONATE — bond deferred to the LP distribution bucket.",
         { action: { label: "tx", onClick: () => window.open(explorerTx(h), "_blank") } },
       );
       refreshAll();
@@ -658,24 +660,25 @@ export default function Page() {
         }
       };
       await approveAll(TOKEN0, DEMO_BUY + (DEMO_BUY * BOND_BPS) / 10000n);
-      await approveAll(TOKEN1, DEMO_OVERSHOOT + (DEMO_OVERSHOOT * BOND_BPS) / 10000n);
+      await approveAll(TOKEN1, DEMO_REVERSE + (DEMO_REVERSE * BOND_BPS) / 10000n);
 
       toast.info("DEMO 1/5 — organic swap (1 MDA in)…");
       const first = await doSwapTx(DEMO_BUY, true, 0n);
       setActiveId(first.tradeId);
 
-      toast.info("DEMO 2/5 — arbitrageur overshoots the reversion (2.2 MDB)…");
-      await sleep(1500);
-      await doSwapTx(DEMO_OVERSHOOT, false, 0n);
+      toast.info("DEMO 2/5 — arbitrageur fully reverses 1:1 in the next block…");
+      await doSwapTx(DEMO_REVERSE, false, 0n);
 
-      toast.info("DEMO 3/5 — waiting out the fixed 21 s window…");
+      toast.info("DEMO 3/5 — waiting out the fixed 24 s window…");
       await waitWindow(BigInt(Math.floor(Date.now() / 1000)) + BigInt(SETTLEMENT_DELAY) + 2n);
 
       toast.info("DEMO 4/5 — settling…");
       const outcome = await onSettle(first.tradeId);
-      if (outcome === 1) {
-        toast.info("DEMO 5/5 — claiming the refund…");
+      if (outcome === 2) {
+        toast.info("DEMO 5/5 — delivery failed in this run; claiming…");
         await onClaim(first.tradeId);
+      } else {
+        toast.success("DEMO 5/5 — bond refunded to the trader AT SETTLEMENT.");
       }
     } catch (e) {
       toast.error(`Demo aborted: ${revertReason(e)}`);
@@ -696,7 +699,7 @@ export default function Page() {
       const first = await doSwapTx(DEMO_BUY, true, 0n);
       setActiveId(first.tradeId);
 
-      toast.info("DEMO 2/4 — waiting out the fixed 21 s window…");
+      toast.info("DEMO 2/4 — waiting out the fixed 24 s window…");
       await waitWindow(BigInt(Math.floor(Date.now() / 1000)) + BigInt(SETTLEMENT_DELAY) + 2n);
 
       toast.info("DEMO 3/4 — settling (expect DONATE)…");
@@ -784,7 +787,7 @@ export default function Page() {
               <div className="band-label">reversion frontier</div>
             </div>
             <div className="band-cell">
-              <div className="band-value">21<span className="unit">s</span></div>
+              <div className="band-value">24<span className="unit">s</span></div>
               <div className="band-label">fixed window</div>
             </div>
             <div className="band-cell">
@@ -996,22 +999,22 @@ export default function Page() {
                   <div className="countdown">
                     <div className={"countdown-time" + (windowOpen ? "" : " ready")}>
                       {active.outcome === 1
-                        ? active.refundClaimed
-                          ? "REFUNDED"
-                          : "CLAIMABLE"
+                        ? "REFUNDED"
                         : active.outcome === 2
-                          ? "DONATED"
-                          : remaining > 0
-                            ? `${remaining}s`
-                            : "SETTLEABLE"}
+                          ? "CLAIMABLE"
+                          : active.outcome === 3
+                            ? "DONATED"
+                            : remaining > 0
+                              ? `${remaining}s`
+                              : "SETTLEABLE"}
                     </div>
                     <div className="countdown-label">
                       {active.outcome === 0
                         ? windowOpen
                           ? "fixed window running — price decides the bond"
                           : "window closed — anyone may settle"
-                        : active.outcome === 1 && !active.refundClaimed
-                          ? "verdict recorded — pull the refund"
+                        : active.outcome === 2
+                          ? "refund verdict — delivery failed, claim retries"
                           : "terminal"}
                     </div>
                   </div>
@@ -1043,12 +1046,12 @@ export default function Page() {
                         {busy === "settle" ? "settling…" : windowOpen ? `wait ${remaining}s` : "settle(tradeId) — anyone can"}
                       </button>
                     )}
-                    {active.outcome === 1 && !active.refundClaimed && (
+                    {active.outcome === 2 && !active.refundClaimed && (
                       <button className="btn btn-primary" onClick={() => onClaim(active.id)} disabled={busy !== null}>
                         {busy === "claim" ? "claiming…" : "claimRefund(tradeId)"}
                       </button>
                     )}
-                    {active.outcome === 2 && (
+                    {active.outcome === 3 && (
                       <button className="btn" onClick={onFlush} disabled={busy !== null}>
                         {busy === "flush" ? "flushing…" : "flushDonation(poolId) → LPs"}
                       </button>
@@ -1106,10 +1109,12 @@ export default function Page() {
                       <td data-label="bond">{formatTokens(r.bondAmount, 6)}</td>
                       <td data-label="status">
                         {r.outcome === 1 ? (
-                          <span className={"badge " + (r.refundClaimed ? "" : "refund")}>
-                            {r.refundClaimed ? "refunded" : "refund — claim"}
-                          </span>
+                          <span className="badge refund">refunded</span>
                         ) : r.outcome === 2 ? (
+                          <span className={r.refundClaimed ? "badge" : "badge refund"}>
+                            {r.refundClaimed ? "claimed" : "refund — claim"}
+                          </span>
+                        ) : r.outcome === 3 ? (
                           <span className="badge donate">donated</span>
                         ) : r.outcome === 0 ? (
                           <span className="badge pending">
@@ -1132,7 +1137,7 @@ export default function Page() {
                             settle
                           </button>
                         )}
-                        {r.outcome === 1 && !r.refundClaimed && (
+                        {r.outcome === 2 && !r.refundClaimed && (
                           <button
                             className="btn btn-ghost btn-sm"
                             onClick={(e) => {
@@ -1312,10 +1317,10 @@ function PriceTape({
         {/* bond destination after verdict */}
         {outcome === 1 && (
           <text x={W / 2} y={H - 6} className="tape-verdict refund" textAnchor="middle">
-            BOND → TRADER (pull claim)
+            BOND → TRADER (paid at settle)
           </text>
         )}
-        {outcome === 2 && (
+        {outcome === 3 && (
           <text x={W / 2} y={H - 6} className="tape-verdict donate" textAnchor="middle">
             BOND → IN-RANGE LPs (deferred donation)
           </text>

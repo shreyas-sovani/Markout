@@ -3,10 +3,10 @@
 import { createPublicClient, http, fallback, keccak256, concat, pad, toHex } from "viem";
 import { sepolia } from "viem/chains";
 
-const TOKEN0 = "0x333ACc2e37A1A1bC7eF27362eb86baC9A44b2D60";
-const TOKEN1 = "0xcf2C78DC09AD87c61D179e36A42ADCC208eb8B73";
-const HOOK = "0xAe5A786094a36475EF619956bb6F1C6089Def0c0";
-const ROUTER = "0x378f4E63f8aFf6e771EAfa95BCAf0Df6571a5ec8";
+const TOKEN0 = "0x7B0B6aF2271Cb2f7500365f5a80dB18F9666c315";
+const TOKEN1 = "0xf3df97cf05D6eFc92cF211440381586b8B86eD76";
+const HOOK = "0x027C6cfD540f0446641846cd004b41561EEd70cC";
+const ROUTER = "0x41Fd0B2B581C5F59d468D272dbfcc26e595383CF";
 const PM = "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543";
 const RPCS = ["https://ethereum-sepolia-rpc.publicnode.com", "https://sepolia.drpc.org"];
 
@@ -49,17 +49,13 @@ const price = (Number(sqrt) / 2 ** 96) ** 2;
 console.log("tick:", tick.toString(), "price T1/T0 ≈", price.toFixed(6));
 
 const hookAbi = [
-  { type: "function", name: "trustedRouter", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "bondFor", stateMutability: "pure", inputs: [{ name: "amountIn", type: "uint256" }], outputs: [{ type: "uint256" }] },
   { type: "function", name: "observationCount", stateMutability: "view", inputs: [{ name: "poolId", type: "bytes32" }], outputs: [{ type: "uint256" }] },
   { type: "function", name: "pendingDonation", stateMutability: "view", inputs: [{ name: "poolId", type: "bytes32" }, { name: "index", type: "uint8" }], outputs: [{ type: "uint256" }] },
 ];
-const routerSet = await client.readContract({ address: HOOK, abi: hookAbi, functionName: "trustedRouter" });
+const bond = await client.readContract({ address: HOOK, abi: hookAbi, functionName: "bondFor", args: [10n ** 18n] });
 const obs = await client.readContract({ address: HOOK, abi: hookAbi, functionName: "observationCount", args: [poolId] });
 const pend0 = await client.readContract({ address: HOOK, abi: hookAbi, functionName: "pendingDonation", args: [poolId, 0] });
 const pend1 = await client.readContract({ address: HOOK, abi: hookAbi, functionName: "pendingDonation", args: [poolId, 1] });
-console.log(
-  "trustedRouter:",
-  routerSet,
-  routerSet.toLowerCase() === ROUTER.toLowerCase() ? "OK" : "MISMATCH",
-);
+console.log("bondFor(1e18):", bond.toString(), bond === 2n * 10n ** 15n ? "OK" : "MISMATCH");
 console.log("observations:", obs.toString(), "pendingDonation:", pend0.toString(), pend1.toString());

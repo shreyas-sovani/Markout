@@ -1,14 +1,6 @@
 # Markout — Live Demo Runbook
 
-Everything needed to run the demo end-to-end against the deployed Sepolia stack, verify each step, and fix the known traps.
-
-## Fastest path — the browser UI
-
-```bash
-cd frontend && npm install && npm run dev
-```
-
-One page against the live deployment: connect wallet (Sepolia), `+100 each` mints demo tokens, swap, watch the 21 s countdown, hit `settle(tradeId)`, get the REFUND/DONATE verdict, and see your trade history with outcomes. The terminal runs below prove the same flows without a wallet.
+Everything needed to run the demo end-to-end against the canonical Sepolia v4 deployment, verify each step, and fix the known traps. All commands are copy-pasteable on the current ABI.
 
 ## Prerequisites
 
@@ -17,65 +9,118 @@ source .env   # ACC3_PRIV_KEY (operator 0xFeAf…690A), ETHERSCAN_API_KEY
 export SEP=https://ethereum-sepolia-rpc.publicnode.com
 ```
 
-Operator EOA holds demo tokens and has approved the router. Addresses in README.
+Operator EOA holds faucet tokens and has approved the router. Addresses in README.
 
 ## Constants
 
 ```bash
-HOOK=0xe79B7Ef0Bb9984BDb614F58D2c8000CE98b180c0
-ROUTER=0xcEbe3CE43db694f2313445999648B1FbbBf20890
-K="(0x7e80764a88133cfc3da52b7305044da782904667,0xcbbe82f3b6331dbe9faead19d3757371b059bdae,300,60,0xe79b7ef0bb9984bdb614f58d2c8000ce98b180c0)"
+HOOK=0x027C6cfD540f0446641846cd004b41561EEd70cC
+ROUTER=0x41Fd0B2B581C5F59d468D272dbfcc26e595383CF
+PM=0xE03A1074c86CFeDd5C142C4F04F1a1536e203543   # canonical PoolManager
+T0=0x7B0B6aF2271Cb2f7500365f5a80dB18F9666c315   # MDA
+T1=0xf3df97cf05D6eFc92cF211440381586b8B86eD76   # MDB
+K="(0x7b0b6af2271cb2f7500365f5a80db18f9666c315,0xf3df97cf05d6efc92cf211440381586b8b86ed76,300,60,0x027c6cfd540f0446641846cd004b41561eed70cc)"
+POOL_ID=0x9e96a56f2809fdcbfc05649349d50d3faad51f4b5da6cdb14ce58f602324ed1c
+MAX=0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+DL=$(($(date +%s)+3600))
 ```
 
-Note the `uint160` in the swap signature — see traps.
+Note the `uint160` in the swap signature — see traps. The router signature is
+`swap(key, params, limit, deadline)` where `limit` = min-out for exact-in and
+max-total-input (bond included) for exact-out.
 
-## Run 1 — organic flow → REFUND
+## Run 0 — faucet (any wallet)
 
 ```bash
-# 1. Organic buy: sell 1 token0, price moves ~20% (far beyond 5 bps).
-cast send $ROUTER "swap((address,address,uint24,int24,address),(bool,int256,uint160),bytes)" \
-  "$K" "(true,-1000000000000000000,4295128740)" 0x \
-  --private-key $ACC3_PRIV_KEY --rpc-url $SEP
-
-# 2. "Arbitrageur" reverts the price in the next tx.
-cast send $ROUTER "swap((address,address,uint24,int24,address),(bool,int256,uint160),bytes)" \
-  "$K" "(false,-1000000000000000000,1461446703485210103287273052203988822378723970341)" 0x \
-  --private-key $ACC3_PRIV_KEY --rpc-url $SEP
-
-# 3. Wait ≥ 21 s (settlement window), then anyone settles:
-cast send $HOOK "settle(bytes32)" $TRADE_ID \
-  --private-key $ACC3_PRIV_KEY --rpc-url $SEP
+cast send $T0 "mint(address,uint256)" <your-address> 100000000000000000000 \
+  --private-key <any-key> --rpc-url $SEP
+cast send $T1 "mint(address,uint256)" <your-address> 100000000000000000000 \
+  --private-key <any-key> --rpc-url $SEP
+# capped: 100_000 per wallet total, 10_000_000 supply, mints to $PM rejected
 ```
 
-Get `$TRADE_ID` from the hook's `SwapBonded` event (`cast logs "SwapBonded(bytes32,address,uint160,uint160,uint256)" --address $HOOK --from-block <block> --json --rpc-url $SEP`, `topics[1]` of the first swap).
+## Run 1 — organic flow → REFUND (paid at settle)
 
-**Expected:** `Settled(outcome=1)` — trader's token0 balance increases by exactly the bond (20 bps of amountIn, e.g. 2e15 for a 1e18 swap). Net cost of the round trip ≈ swap fees only.
-
-## Run 2 — toxic flow → DONATE
+The 24 s window ≈ two 12 s blocks: a full 1:1 reversion landing **one block
+later** already sits at the 50% frontier and refunds. To land the reversion in
+the next block, pre-sign both swaps and publish back-to-back:
 
 ```bash
-# Single-shot "arbitrage": buy and walk away.
-cast send $ROUTER "swap((address,address,uint24,int24,address),(bool,int256,uint160),bytes)" \
-  "$K" "(true,-1000000000000000000,4295128740)" 0x \
-  --private-key $ACC3_PRIV_KEY --rpc-url $SEP
-# wait 21 s, settle that trade id
+# approve once
+cast send $T0 "approve(address,uint256)" $ROUTER $MAX --private-key $ACC3_PRIV_KEY --rpc-url $SEP
+cast send $T1 "approve(address,uint256)" $ROUTER $MAX --private-key $ACC3_PRIV_KEY --rpc-url $SEP
+
+N=$(cast nonce 0xFeAf5C921996FC53f4DEf35e181E766e6D74690A --rpc-url $SEP)
+RAW1=$(cast calldata "swap((address,address,uint24,int24,address),(bool,int256,uint160),uint256,uint256)" \
+  "$K" "(true,-1000000000000000000,4295128740)" 0 $DL)
+RAW2=$(cast calldata "swap((address,address,uint24,int24,address),(bool,int256,uint160),uint256,uint256)" \
+  "$K" "(false,-1000000000000000000,1461446703485210103287273052203988822378723970340)" 0 $DL)
+TX1=$(cast mktx --gas-limit 2000000 --nonce $N     --private-key $ACC3_PRIV_KEY --rpc-url $SEP $ROUTER $RAW1)
+TX2=$(cast mktx --gas-limit 2000000 --nonce $((N+1)) --private-key $ACC3_PRIV_KEY --rpc-url $SEP $ROUTER $RAW2)
+cast publish --rpc-url $SEP $TX1 >/dev/null && cast publish --rpc-url $SEP $TX2 >/dev/null
 ```
 
-**Expected:** `Settled(outcome=2)` plus a `Donate` event on the PoolManager; the hook's escrow for that currency drops to 0; the bond lands in the pool for in-range LPs.
-
-## Run 3 — exact-out precision (optional)
+Grab the first trade id from the buy receipt's `SwapBonded` topic1, wait out
+the window, then anyone settles:
 
 ```bash
-cast send $ROUTER "swap((address,address,uint24,int24,address),(bool,int256,uint160),bytes)" \
-  "$K" "(true,100000000000000000,4295128740)" 0x \
+BUY=<buy-tx-hash>
+TRADE1=$(cast receipt $BUY --rpc-url $SEP --json | python3 -c "
+import json,sys
+for l in json.load(sys.stdin)['logs']:
+    if l['address'].lower()=='$HOOK'.lower(): print(l['topics'][1]); break")
+sleep 30
+cast send $HOOK "settle(bytes32)" $TRADE1 --private-key $ACC3_PRIV_KEY --rpc-url $SEP
+```
+
+**Expected:** one transaction containing `Settled(outcome=1 Refunded)` AND
+`RefundClaimed` — the bond (20 bps of realized input, e.g. 0.001996 MDA for a
+1 MDA swap) is delivered to the trader **at settlement**. No claim
+transaction exists on this path. Net round-trip cost ≈ the 3 bps swap fees.
+
+If the reversion landed ≥2 blocks late (check block timestamps: Δ > 18 s),
+residual exceeds 50% and the trade donates — that is the oracle working, not
+a bug. Retry the pair; next-block landings are the common case with
+back-to-back publishes.
+
+## Run 2 — toxic flow → DONATE (single-shot, unreversed)
+
+```bash
+cast send $ROUTER "swap((address,address,uint24,int24,address),(bool,int256,uint160),uint256,uint256)" \
+  "$K" "(true,-1000000000000000000,4295128740)" 0 $DL \
+  --private-key $ACC3_PRIV_KEY --rpc-url $SEP
+# wait ≥ 24 s, settle that trade id (SwapBonded topic1 of this tx)
+cast send $HOOK "flushDonation(bytes32)" $POOL_ID --private-key $ACC3_PRIV_KEY --rpc-url $SEP
+```
+
+**Expected:** `Settled(outcome=3 Donated)`, escrow deferred into the pending
+bucket, then `flushDonation` moves it into the pool for in-range LPs (a
+`Donate` event on the canonical PoolManager).
+
+## Run 3 — generic router (no Markout allowlist)
+
+The bond rides the swap caller's own PoolManager delta, so **any** v4 router
+works. From a contract (or an integrator's router): call
+`manager.swap(key, params, hookData)` inside `unlock` and settle your own
+delta — it already includes the bond. There is no `settleFor(hook)` step, no
+allowlist, no initializeRouter.
+
+## Run 4 — exact-out with max input
+
+```bash
+# output 0.1 MDB, cap total input (amountIn + bond) at 0.2 MDA
+cast send $ROUTER "swap((address,address,uint24,int24,address),(bool,int256,uint160),uint256,uint256)" \
+  "$K" "(true,100000000000000000,4295128740)" 200000000000000000 $DL \
   --private-key $ACC3_PRIV_KEY --rpc-url $SEP
 ```
 
-Output filled exactly 1e17; bond = 20 bps of the realized input (compare hook token balance vs the swap's input leg).
+Reverts `TooMuchIn(amountIn, cap)` when the realized input (bond included)
+exceeds the cap.
 
 ## Hands-free mode
 
-`script/keeper.sh` pokes the oracle every loop and settles every due trade automatically:
+`script/keeper.sh` pokes the accumulator, settles due trades, retry-claims
+failed refund deliveries, and flushes donations:
 
 ```bash
 RPC=$SEP PK=$ACC3_PRIV_KEY ./script/keeper.sh
@@ -84,23 +129,36 @@ RPC=$SEP PK=$ACC3_PRIV_KEY ./script/keeper.sh
 ## Verification cheatsheet
 
 ```bash
-# Outcomes (1 = Refund, 2 = Donate)
-cast logs "Settled(bytes32,uint8,uint160,uint256)" --address $HOOK \
+# Outcomes: 0 open, 1 refunded, 2 refund-pending (delivery failed), 3 donated
+cast logs "Settled(bytes32,uint8,int24,uint256)" --address $HOOK \
   --from-block $(( $(cast block-number --rpc-url $SEP) - 300 )) --json --rpc-url $SEP
 
-# Escrow held by the hook
-cast call 0x7e80764a88133cFc3dA52b7305044dA782904667 "balanceOf(address)(uint256)" $HOOK --rpc-url $SEP
-cast call 0xCBbe82f3B6331dbE9fAEAD19D3757371b059BDAe "balanceOf(address)(uint256)" $HOOK --rpc-url $SEP
+# Refunds paid at settle or claimed later
+cast logs "RefundClaimed(bytes32,address,uint256)" --address $HOOK \
+  --from-block $(( $(cast block-number --rpc-url $SEP) - 300 )) --json --rpc-url $SEP
 
-# Receipts (id = uint256(tradeId))
-cast call $HOOK "balanceOf(address,uint256)(uint256)" <trader> <tradeId-as-uint> --rpc-url $SEP
+# Escrow + strict liability accounting (hook balance must cover, may exceed)
+cast call $T0 "balanceOf(address)(uint256)" $HOOK --rpc-url $SEP
+cast call $HOOK "escrowLiability(address)(uint256)" $T0 --rpc-url $SEP
+
+# Pending LP donations
+cast call $HOOK "pendingDonation(bytes32,uint8)(uint256)" $POOL_ID 0 --rpc-url $SEP
 ```
 
 ## Traps (each one cost real time — read before hacking)
 
-1. **`uint160`, not `uint256`.** The swap signature's `sqrtPriceLimitX96` is `uint160`. Encode it as `uint256` and `cast` silently produces a different selector; the router reverts in ~152 gas with empty data.
-2. **Pool currency ordering.** currency0 = `0x7e80…` (numerically smaller). Swap params must match or you get `PoolNotInitialized`.
-3. **Price limits can't be zero.** Buy → `4295128740` (MIN+1); sell → `1461446703485210103287273052203988822378723970341` (MAX−1).
-4. **Settlement before 21 s reverts** with `SettlementWindowOpen(settleAfter, now)` — by design.
-5. **A poke before manipulation.** The TWAP attributes the time since the last poke to the price observed at the next update. If you're testing manipulation resistance in a fork test, poke before the shoves or the elapsed time lands on the shoved price (that's oracle semantics, not a bug).
-6. **Dust swaps revert** (`SwapTooSmall`) once bond = 20 bps of amountIn rounds to zero — amounts below 500 wei of input.
+1. **`uint160`, not `uint256`.** `sqrtPriceLimitX96` is `uint160`; encode it
+   as `uint256` and `cast` silently builds a different selector.
+2. **Block-time geometry.** The window is 24 s and Sepolia blocks are 12 s:
+   a 1:1 reversion refunds iff it lands ≤ 18 s after the trade (next block =
+   exactly the 50% frontier). Send swap pairs with pre-signed back-to-back
+   publishes (`cast mktx --gas-limit 2000000` + explicit nonces) — sequential
+   `cast send` calls land 2-3 blocks apart, and under-set mktx gas reverts
+   OutOfGas.
+3. **Pool currency ordering.** currency0 = `0x7B0B…` (numerically smaller).
+4. **Price limits can't be zero.** Buy → `4295128740` (MIN+1); sell →
+   `1461446703485210103287273052203988822378723970340` (MAX−1).
+5. **Settlement before 24 s reverts** `SettlementWindowOpen` — by design.
+6. **Dust swaps revert** (`SwapTooSmall`) once the 20 bps bond rounds to
+   zero — inputs below 500 wei.
+7. **`cast send` takes `0xfff…f`, not `max`.**

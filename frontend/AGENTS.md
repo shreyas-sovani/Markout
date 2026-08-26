@@ -20,9 +20,14 @@ Nothing in the protocol — the UI is read/write over existing contracts. What b
 
 ## Current State
 
-Working: `next build` passes (static, ~214 kB first load). Read pipeline (poolId, slot0 extsload, chunked logs, trades multicall, previewTrade) and tx pipeline (mint → exact approve → simulated swap → settle → claim → flush) validated against live canonical-Sepolia state on 2026-08-25 (`scripts/live-check.mjs`, `scripts/history-check.mjs`); the LiveProofPack in `lib/contracts.ts` points at the fresh Refund+Donate+claim+flush run.
+Working: `next build` passes (static, ~214 kB first load). Read pipeline (poolId, slot0 extsload, chunked logs, trades multicall, previewTrade) and tx pipeline (mint → exact approve → simulated swap → settle → flush) validated against live canonical-Sepolia state on 2026-08-27 (`scripts/live-check.mjs`, `scripts/history-check.mjs`); constants point at the 2026-08-27 deployment (hook `0x027C…`, 24 s window, outcome enum 1=Refunded/2=RefundPending/3=Donated, at-settle refunds). The 2026-08-25 addresses are stale.
 
 ## Decision Log
+
+### 2026-08-27 — track the overhaul cut
+- **Change**: constants repointed to the 2026-08-27 deployment (canonical PM unchanged; hook `0x027C6cfd…`, router `0x41Fd0B2B…`, tokens `0x7B0B…`/`0xf3df…`); SETTLEMENT_DELAY 24; outcome semantics remapped (1 Refunded / 2 RefundPending / 3 Donated) across countdown, history badges, tape verdicts, and toasts; settle messaging now "REFUND — paid at settlement" with claim shown only for outcome 2; the refund demo pilot uses a 1:1 next-block reverse (no overshoot) and auto-settles + only claims if delivery failed; live-check dropped the deleted trustedRouter probe for bondFor; proof pack swapped for the 2026-08-27 run.
+- **Reasoning**: ABI, addresses, and constants must match the deployed cut exactly; receipts already came from the user's own transactions (no last-trade pointer) and required no change; no restyle.
+- **Task/session**: overhaul directive, 2026-08-27.
 
 ### 2026-08-25 — v2 rebuild for the hardened protocol
 - **Change**: rewired to the canonical deployment (canonical PM `0xE03A…`, hook `0xAe5A…`, router `0x378f…`, capped faucet tokens). Deterministic receipts: tradeId/verdicts parsed from the tx's own logs (topic constants in `TOPICS`), no `lastTradeId`. Every write simulated first (`simulateContract`) with revert-reason toasts; exact approvals (`amountIn + bond`, never unlimited); user-editable slippage → `minAmountOut`, 5-minute deadline. Refresh recovery: on connect, SwapBonded logs + `trades()` multicall rebuild every open/claimable/settled trade; settle/claim buttons live on both panel and history rows. Price Memory Tape (SVG) plots pre/post/live ticks, the fixed-window average from `previewTrade`, the 50% frontier, and the bond destination after verdict. Deterministic pilots: REFUND = swap + 2.2× overshoot reversal + auto settle/claim; DONATE = single swap + auto settle/flush. RPC fallback (publicnode/drpc/1rpc) with health chip; `wallet_switchEthereumChain` prompt; aria-live countdown/verdict; history collapses to labeled cards under 680px.

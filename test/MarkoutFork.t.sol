@@ -69,7 +69,7 @@ contract MarkoutForkTest is Test {
             address(this),
             uint160(
                 Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG
-                    | Hooks.AFTER_SWAP_FLAG
+                    | Hooks.AFTER_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
             ),
             type(MarkoutHook).creationCode,
             abi.encode(address(CANONICAL_PM))
@@ -77,8 +77,7 @@ contract MarkoutForkTest is Test {
         hook = new MarkoutHook{salt: salt}(CANONICAL_PM);
         assertEq(address(hook), hookAddress, "hook mining failed");
 
-        router = new MarkoutRouter(CANONICAL_PM, address(hook));
-        hook.initializeRouter(address(router));
+        router = new MarkoutRouter(CANONICAL_PM);
 
         // Officially deployed canonical periphery PositionManager.
         posMgr = CANONICAL_POSMGR;
@@ -172,16 +171,15 @@ contract MarkoutForkTest is Test {
         assertGt(bond, 0, "bond escrowed on canonical PM");
         assertEq(token0.balanceOf(address(hook)), bond, "hook holds the bond");
         assertEq(hook.escrowLiability(Currency.wrap(address(token0))), bond, "liability recorded");
+        uint256 aliceBefore = token0.balanceOf(alice);
 
         bytes32 arberTrade = _swapAs(arber, false, -2e17); // arbitrageur reverts
         vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
 
         hook.settle(tradeId);
-        assertEq(uint8(_outcome(tradeId)), uint8(MarkoutHook.Outcome.RefundPending), "organic => refund");
+        assertEq(uint8(_outcome(tradeId)), uint8(MarkoutHook.Outcome.Refunded), "organic => refund paid at settle");
 
-        uint256 aliceBefore = token0.balanceOf(alice);
-        assertTrue(hook.claimRefund(tradeId), "claim on canonical PM");
-        assertEq(token0.balanceOf(alice), aliceBefore + bond, "bond returned");
+        assertEq(token0.balanceOf(alice), aliceBefore + bond, "bond PAID AT SETTLE on canonical PM");
         assertEq(hook.escrowLiability(Currency.wrap(address(token0))), 0, "liability cleared");
 
         // The arbitrageur's own reversal trade, left unreversed, donates.
@@ -208,7 +206,7 @@ contract MarkoutForkTest is Test {
             IPoolManager.SwapParams({
                 zeroForOne: true, amountSpecified: 1e17, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
-            1e17, // exact-out: minimum output equals the specified output
+            type(uint256).max, // exact-out: no input cap in this probe
             type(uint256).max
         );
         vm.stopPrank();

@@ -13,6 +13,13 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 /// standard pattern: subclasses override `getHookPermissions` plus the hooks
 /// they enable and inherit safe no-op defaults for the rest.
 abstract contract BaseHook is IHooks {
+    error NotPoolManager();
+
+    /// @dev The PoolManager whose callback calls this hook. Every external
+    /// hook entrypoint rejects any other caller — the `sender` argument is
+    /// data, not access control.
+    function _poolManager() internal view virtual returns (IPoolManager);
+
     constructor() {
         Hooks.Permissions memory permissions = getHookPermissions();
         address hookAddress = address(this);
@@ -129,6 +136,7 @@ abstract contract BaseHook is IHooks {
         virtual
         returns (bytes4)
     {
+        if (msg.sender != address(_poolManager())) revert NotPoolManager();
         return _beforeInitialize(sender, key, sqrtPriceX96);
     }
 
@@ -137,6 +145,7 @@ abstract contract BaseHook is IHooks {
         virtual
         returns (bytes4)
     {
+        if (msg.sender != address(_poolManager())) revert NotPoolManager();
         return _afterInitialize(sender, key, sqrtPriceX96, tick);
     }
 
@@ -146,6 +155,7 @@ abstract contract BaseHook is IHooks {
         IPoolManager.ModifyLiquidityParams calldata params,
         bytes calldata hookData
     ) external virtual returns (bytes4) {
+        if (msg.sender != address(_poolManager())) revert NotPoolManager();
         return _beforeAddLiquidity(sender, key, params, hookData);
     }
 
@@ -157,6 +167,7 @@ abstract contract BaseHook is IHooks {
         BalanceDelta feesAccrued,
         bytes calldata hookData
     ) external virtual returns (bytes4, BalanceDelta) {
+        if (msg.sender != address(_poolManager())) revert NotPoolManager();
         return _afterAddLiquidity(sender, key, params, delta, feesAccrued, hookData);
     }
 
@@ -166,6 +177,7 @@ abstract contract BaseHook is IHooks {
         IPoolManager.ModifyLiquidityParams calldata params,
         bytes calldata hookData
     ) external virtual returns (bytes4) {
+        if (msg.sender != address(_poolManager())) revert NotPoolManager();
         return _beforeRemoveLiquidity(sender, key, params, hookData);
     }
 
@@ -177,6 +189,7 @@ abstract contract BaseHook is IHooks {
         BalanceDelta feesAccrued,
         bytes calldata hookData
     ) external virtual returns (bytes4, BalanceDelta) {
+        if (msg.sender != address(_poolManager())) revert NotPoolManager();
         return _afterRemoveLiquidity(sender, key, params, delta, feesAccrued, hookData);
     }
 
@@ -186,6 +199,7 @@ abstract contract BaseHook is IHooks {
         IPoolManager.SwapParams calldata params,
         bytes calldata hookData
     ) external virtual returns (bytes4, BeforeSwapDelta, uint24) {
+        if (msg.sender != address(_poolManager())) revert NotPoolManager();
         return _beforeSwap(sender, key, params, hookData);
     }
 
@@ -196,6 +210,7 @@ abstract contract BaseHook is IHooks {
         BalanceDelta delta,
         bytes calldata hookData
     ) external virtual returns (bytes4, int128) {
+        if (msg.sender != address(_poolManager())) revert NotPoolManager();
         return _afterSwap(sender, key, params, delta, hookData);
     }
 
@@ -206,6 +221,7 @@ abstract contract BaseHook is IHooks {
         uint256 amount1,
         bytes calldata hookData
     ) external virtual returns (bytes4) {
+        if (msg.sender != address(_poolManager())) revert NotPoolManager();
         return _beforeDonate(sender, key, amount0, amount1, hookData);
     }
 
@@ -216,6 +232,7 @@ abstract contract BaseHook is IHooks {
         uint256 amount1,
         bytes calldata hookData
     ) external virtual returns (bytes4) {
+        if (msg.sender != address(_poolManager())) revert NotPoolManager();
         return _afterDonate(sender, key, amount0, amount1, hookData);
     }
 }

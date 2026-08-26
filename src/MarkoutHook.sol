@@ -5,7 +5,11 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {
+    BeforeSwapDelta,
+    BeforeSwapDeltaLibrary,
+    toBeforeSwapDelta
+} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
@@ -18,14 +22,20 @@ import {MarkoutEngine} from "./MarkoutEngine.sol";
 /// @title Markout — autonomous MEV/LVR protection hook for Uniswap v4.
 /// @notice Swaps fill immediately at the pool's advertised 3 bps fee while a
 /// 20 bps input bond is escrowed. Over the trade's *immutable* settlement
-/// window [bondTime, settleAfter] (21 s), a hook-maintained previous-tick
-/// accumulator measures the time-weighted average tick; the normalized
-/// reversion classifier refunds the bond when at least half of the trade's
-/// own price impact reverted (organic flow) and donates it to in-range LPs
-/// when it sustained (informed flow). Settlement is permissionless, records
-/// its verdict before any external interaction, and settling late can never
-/// change a verdict: the window endpoint is interpolated from historical
-/// observations, not read from the spot price at settle time.
+/// window [bondTime, settleAfter] (24 s ≈ two 12 s blocks), a hook-maintained
+/// previous-tick accumulator measures the time-weighted average tick; the
+/// normalized reversion classifier refunds the bond when at least half of
+/// the trade's own price impact reverted (organic flow) and donates it to
+/// in-range LPs when it sustained (informed flow).
+///
+/// The bond is charged to the swapper through v4's hook-delta mechanism —
+/// it becomes part of the swap caller's own PoolManager delta, so ANY
+/// router that can settle a normal v4 swap can pay it; no Markout-specific
+/// settlement step exists. Settlement is permissionless, pays successful
+/// refunds immediately (a separate claim exists only when delivery failed),
+/// records its verdict before any external interaction, and computes over
+/// the fixed window via an unbounded, binary-searched observation history —
+/// delayed settlement always produces the window-close verdict.
 contract MarkoutHook is BaseHook, IUnlockCallback {
     using StateLibrary for IPoolManager;
     using CurrencyLibrary for Currency;
@@ -36,18 +46,15 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     uint256 public constant BOND_BPS = 20;
     uint256 public constant BPS_DENOMINATOR = 10_000;
     /// @notice Settlement window T: the immutable interval every trade is
-    /// measured over. Long enough for natural arbitrage to revert organic flow.
-    uint256 public constant SETTLEMENT_DELAY = 21 seconds;
-    /// @notice Number of retained observations per pool. Settlement needs one
-    /// observation at or before `settleAfter`; if more than this many updates
-    /// happen between window close and settlement, `settle` reverts
-    /// `SettlementHistoryPruned` rather than guessing a verdict.
-    uint256 public constant OBSERVATION_CAPACITY = 64;
+    /// measured over. Sized to ~two 12 s blocks so a full reversion landing
+    /// one block after the trade already sits at the 50% frontier.
+    uint256 public constant SETTLEMENT_DELAY = 24 seconds;
 
     enum Outcome {
-        None, // open
-        RefundPending, // verdict: refund; trader must claim (pull)
-        Donated // verdict: donate; value deferred to LP distribution
+        None, // 0 — open
+        Refunded, // 1 — verdict refund, bond delivered (at settle or claim)
+        RefundPending, // 2 — verdict refund, delivery failed; claim retries
+        Donated // 3 — verdict donate; value deferred to LP distribution
     }
 
     struct Trade {
@@ -77,7 +84,7 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         uint32 lastTimestamp;
         int56 cumulative;
         int24 tick; // tick held since lastTimestamp
-        uint64 count; // total observations pushed (ring write counter)
+        uint256 count; // total observations pushed (append-only)
         mapping(uint256 => Obs) data;
     }
 
@@ -93,29 +100,16 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     error SettlementWindowOpen(uint256 settleAfter, uint256 now);
     error UnknownTrade();
     error AlreadySettled();
-    error NotPoolManager();
-    error NotTrustedRouter();
-    error RouterAlreadySet();
-    error InvalidHookData();
     error UnsupportedPool(uint24 fee, int24 tickSpacing);
-    error SettlementHistoryPruned();
+    error NoObservations();
     error NotRefundPending();
     error RefundAlreadyClaimed();
     error NothingToFlush();
     error NoActiveLiquidity();
+    error TickOutOfBounds();
+    error InputDeltaNotNegative();
 
     IPoolManager public immutable poolManager;
-    address private immutable deployer;
-    /// @notice The only allowed direct swap caller. The Markout-aware router
-    /// is the sole contract that both pays the hook's bond escrow debt and
-    /// truthfully declares the human beneficiary in hookData.
-    address public trustedRouter;
-
-    /// @dev CREATE2 permission-mined hooks deploy through the canonical
-    /// deterministic deployer, so `msg.sender` there is that proxy. The
-    /// human broadcaster (tx.origin) is the deployer in that case; direct
-    /// deploys (tests) record the deploying contract.
-    address private constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
     mapping(bytes32 tradeId => Trade) public trades;
     uint256 private tradeNonce;
@@ -127,21 +121,16 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     mapping(PoolId => mapping(uint8 => uint256)) public pendingDonation; // 0 => currency0, 1 => currency1
 
     /// @notice Strict escrow accounting: bond value the hook currently owes
-    /// out (open + refund-pending + donation-pending). Must always be covered
-    /// by the hook's token/native balance.
+    /// out (open + refund-pending + donation-pending). Covered by the hook's
+    /// token/native balance (which may also hold gratuitous deposits).
     mapping(Currency => uint256) public escrowLiability;
 
-    constructor(IPoolManager _poolManager) {
-        poolManager = _poolManager;
-        deployer = msg.sender == CREATE2_DEPLOYER ? tx.origin : msg.sender;
+    constructor(IPoolManager manager_) {
+        poolManager = manager_;
     }
 
-    /// @notice One-time, deployer-only registration of the trusted router.
-    /// Permanently locked after the first call.
-    function initializeRouter(address router) external {
-        if (msg.sender != deployer) revert NotTrustedRouter();
-        if (trustedRouter != address(0)) revert RouterAlreadySet();
-        trustedRouter = router;
+    function _poolManager() internal view override returns (IPoolManager) {
+        return poolManager;
     }
 
     receive() external payable {
@@ -165,8 +154,8 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
             afterSwap: true,
             beforeDonate: false,
             afterDonate: false,
-            beforeSwapReturnDelta: false,
-            afterSwapReturnDelta: false,
+            beforeSwapReturnDelta: true, // exact-in bonds ride the specified delta
+            afterSwapReturnDelta: true, // exact-out bonds ride the unspecified delta
             afterAddLiquidityReturnDelta: false,
             afterRemoveLiquidityReturnDelta: false
         });
@@ -186,7 +175,7 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     }
 
     // ---------------------------------------------------------------------------
-    // Previous-tick accumulator
+    // Previous-tick accumulator — append-only history, binary-searched reads
     // ---------------------------------------------------------------------------
 
     /// @notice Bring the accumulator up to the current block, attributing the
@@ -208,42 +197,44 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
             // Same-block update (beforeSwap -> afterSwap): no time elapses,
             // but the held tick must move to the current one.
             obs.tick = tickNow;
-            obs.data[(obs.count - 1) % OBSERVATION_CAPACITY].tick = tickNow;
+            obs.data[obs.count - 1].tick = tickNow;
         } else if (timestamp > obs.lastTimestamp) {
             obs.cumulative += int56(obs.tick) * int56(uint56(timestamp - obs.lastTimestamp));
             obs.lastTimestamp = timestamp;
             obs.tick = tickNow;
-            uint64 slot = uint64(obs.count % OBSERVATION_CAPACITY);
-            obs.data[slot] = Obs({timestamp: timestamp, cumulative: obs.cumulative, tick: tickNow});
+            obs.data[obs.count] = Obs({timestamp: timestamp, cumulative: obs.cumulative, tick: tickNow});
             obs.count += 1;
         }
         return obs.cumulative;
     }
 
     /// @notice Accumulator value at an arbitrary (possibly past or future)
-    /// timestamp. Past points are interpolated from the observation ring;
-    /// future points project the currently-held tick. Settlement over the
-    /// immutable [bondTime, settleAfter] window therefore returns the same
-    /// value no matter when settlement happens.
+    /// timestamp. Past points binary-search the append-only observation
+    /// history — nothing is ever pruned, so any open trade's window stays
+    /// readable no matter how many pokes or swaps follow; future points
+    /// project the currently-held tick. Settlement over the immutable
+    /// [bondTime, settleAfter] window therefore returns the same value no
+    /// matter when settlement happens, and escrow can never be trapped.
     function cumulativeAt(PoolId poolId, uint32 t) public view returns (int56) {
         PoolObservations storage obs = observations[poolId];
-        if (obs.lastTimestamp == 0) revert SettlementHistoryPruned();
+        if (obs.count == 0) revert NoObservations();
         if (t >= obs.lastTimestamp) {
             return obs.cumulative + int56(obs.tick) * int56(uint56(t - obs.lastTimestamp));
         }
-        // Walk newest -> oldest for the latest observation at or before t.
-        uint256 newest = obs.count - 1; // count >= 1 whenever initialized
-        uint256 oldest = obs.count > OBSERVATION_CAPACITY ? obs.count - OBSERVATION_CAPACITY : 0;
-        for (uint256 i = newest + 1; i > oldest;) {
-            Obs storage o = obs.data[(i - 1) % OBSERVATION_CAPACITY];
-            if (o.timestamp <= t) {
-                return o.cumulative + int56(o.tick) * int56(uint56(t - o.timestamp));
-            }
-            unchecked {
-                --i;
+        // Binary search for the last observation at or before t. Obs are
+        // strictly increasing in timestamp, indexed 0..count-1.
+        uint256 lo = 0;
+        uint256 hi = obs.count - 1;
+        while (lo < hi) {
+            uint256 mid = (lo + hi + 1) / 2;
+            if (obs.data[mid].timestamp <= t) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
             }
         }
-        revert SettlementHistoryPruned();
+        Obs storage o = obs.data[lo];
+        return o.cumulative + int56(o.tick) * int56(uint56(t - o.timestamp));
     }
 
     function observationCount(PoolId poolId) external view returns (uint256) {
@@ -254,14 +245,24 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     // Hook lifecycle
     // ---------------------------------------------------------------------------
 
-    function _beforeSwap(address sender, PoolKey calldata key, IPoolManager.SwapParams calldata, bytes calldata)
+    /// @dev Exact-in: the realized input equals the specified amount, so the
+    /// bond is charged up-front through the *specified* delta — it lands in
+    /// the swap caller's own PoolManager delta, payable by any generic
+    /// router. Exact-out: the input is only known after the swap, so the
+    /// charge happens in afterSwap via the returned (unspecified-side) delta.
+    function _beforeSwap(address sender, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata)
         internal
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        if (sender != trustedRouter) revert NotTrustedRouter();
         (, int24 tick,,) = poolManager.getSlot0(key.toId());
         _preSlotStore(key.toId(), sender, tick);
+
+        if (params.amountSpecified < 0) {
+            uint256 bond = (uint256(uint128(-int128(params.amountSpecified))) * BOND_BPS) / BPS_DENOMINATOR;
+            if (bond == 0) revert SwapTooSmall();
+            return (IHooks.beforeSwap.selector, toBeforeSwapDelta(int128(uint128(bond)), 0), 0);
+        }
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
@@ -272,11 +273,6 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         BalanceDelta delta,
         bytes calldata hookData
     ) internal override returns (bytes4, int128) {
-        if (sender != trustedRouter) revert NotTrustedRouter();
-        // Only the trusted router may declare the beneficiary, and it must.
-        if (hookData.length != 32) revert InvalidHookData();
-        address trader = abi.decode(hookData, (address));
-
         Currency inputCurrency = params.zeroForOne ? key.currency0 : key.currency1;
         int128 inputDelta = params.zeroForOne ? delta.amount0() : delta.amount1();
         if (inputDelta >= 0) revert InputDeltaNotNegative();
@@ -285,15 +281,30 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         uint256 bond = (amountIn * BOND_BPS) / BPS_DENOMINATOR;
         if (bond == 0) revert SwapTooSmall();
 
-        // Checkpoint the accumulator at bond time (attributes elapsed time to
-        // the pre-swap tick — previous-tick semantics), then capture both
+        // The beneficiary: a Markout-aware router may declare its payer in
+        // hookData; otherwise the direct swap caller is the trader. This is
+        // a convenience, never a gate — anyone may swap through any router.
+        address trader = hookData.length == 32 ? abi.decode(hookData, (address)) : sender;
+
+        // Checkpoint the accumulator at bond time (attributes elapsed time
+        // to the pre-swap tick — previous-tick semantics), then capture both
         // boundary ticks for the normalized reversion classifier.
         (, int24 postTick,,) = poolManager.getSlot0(key.toId());
         int56 cumAtBond = _poke(key.toId(), postTick);
         int24 preTick = _preSlotTake(key.toId(), sender);
 
+        // Escrow the bond against the hook's delta credit. Exact-in credit
+        // was charged on the specified amount; a partial fill (price limit)
+        // means the realized input is smaller — return the difference to the
+        // trader so the charge always matches the realized bond exactly.
         poolManager.take(inputCurrency, address(this), bond);
         escrowLiability[inputCurrency] += bond;
+        if (params.amountSpecified < 0) {
+            uint256 charged = (uint256(uint128(-int128(params.amountSpecified))) * BOND_BPS) / BPS_DENOMINATOR;
+            if (charged > bond) {
+                poolManager.take(inputCurrency, trader, charged - bond);
+            }
+        }
 
         bytes32 tradeId = keccak256(abi.encode(key.toId(), sender, block.number, block.timestamp, tradeNonce++));
 
@@ -312,21 +323,26 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         });
 
         emit SwapBonded(tradeId, trader, preTick, postTick, bond);
+
+        // Exact-out: charge the realized bond through the returned delta
+        // (unspecified side == input currency for exact-out in both
+        // directions). Exact-in was already charged in beforeSwap.
+        if (params.amountSpecified > 0) {
+            return (IHooks.afterSwap.selector, int128(uint128(bond)));
+        }
         return (IHooks.afterSwap.selector, 0);
     }
 
-    error InputDeltaNotNegative();
-
     // ---------------------------------------------------------------------------
-    // Settlement — permissionless, immutable verdicts, zero external calls
+    // Settlement — permissionless, immutable verdicts, refunds paid here
     // ---------------------------------------------------------------------------
 
     /// @notice Settle a bonded trade. Callable by anyone once the window has
     /// elapsed. The verdict is computed over the immutable window
-    /// [bondTime, settleAfter] via historical interpolation and recorded
+    /// [bondTime, settleAfter] via the append-only history and recorded
     /// *before* any value moves; settling late (or adversarially) cannot
-    /// change it. Refunds are pull-based (`claimRefund`); donations are
-    /// deferred to `flushDonation`.
+    /// change it. A successful refund is paid to the trader immediately;
+    /// only a failed delivery (hostile token) leaves a retryable pull claim.
     function settle(bytes32 tradeId) external {
         Trade storage trade = trades[tradeId];
         if (trade.settleAfter == 0) revert UnknownTrade();
@@ -335,8 +351,7 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
 
         PoolId poolId = trade.key.toId();
         int56 endCum = cumulativeAt(poolId, trade.settleAfter);
-        uint32 elapsed = trade.settleAfter - trade.bondTime;
-        // elapsed is SETTLEMENT_DELAY (21) by construction; never zero.
+        uint32 elapsed = trade.settleAfter - trade.bondTime; // SETTLEMENT_DELAY by construction
         int256 avgTick = (int256(endCum) - int256(trade.cumAtBond)) / int256(uint256(elapsed));
         if (avgTick < int256(int24(type(int24).min)) || avgTick > int256(int24(type(int24).max))) {
             revert TickOutOfBounds();
@@ -344,21 +359,31 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
 
         bool refund = MarkoutEngine.decide(trade.preTick, trade.postTick, int24(avgTick));
         if (refund) {
-            trade.outcome = Outcome.RefundPending;
+            // The hook already holds the escrowed bond tokens — pay the
+            // trader directly, no PoolManager interaction. On failure the
+            // verdict survives and a pull claim remains.
+            trade.outcome = Outcome.RefundPending; // provisional; flipped below on success
+            bool ok = _tryTransfer(trade.bondCurrency, trade.trader, trade.bondAmount);
+            if (ok) {
+                trade.outcome = Outcome.Refunded;
+                escrowLiability[trade.bondCurrency] -= trade.bondAmount;
+                emit Settled(tradeId, uint8(trade.outcome), int24(avgTick), trade.bondAmount);
+                emit RefundClaimed(tradeId, trade.trader, trade.bondAmount);
+                return;
+            }
+            emit Settled(tradeId, uint8(trade.outcome), int24(avgTick), trade.bondAmount);
+            emit RefundDeliveryFailed(tradeId, trade.trader, trade.bondAmount);
         } else {
             trade.outcome = Outcome.Donated;
             pendingDonation[poolId][trade.bondCurrency == trade.key.currency0 ? 0 : 1] += trade.bondAmount;
+            emit Settled(tradeId, uint8(trade.outcome), int24(avgTick), trade.bondAmount);
         }
-
-        emit Settled(tradeId, uint8(trade.outcome), int24(avgTick), trade.bondAmount);
     }
 
-    error TickOutOfBounds();
-
-    /// @notice Pull-based refund claim. Callable by anyone (delivered to the
-    /// recorded trader). Marks claimed *before* the external transfer so
-    /// reentrancy and replay are impossible; if the token rejects delivery
-    /// the claim resets and stays retryable — settlement never bricks.
+    /// @notice Retry path only: exists for refunds whose delivery failed at
+    /// settlement (e.g. blacklist tokens). Marks claimed *before* the
+    /// external transfer so reentrancy and replay are impossible; a failed
+    /// delivery resets and stays retryable.
     function claimRefund(bytes32 tradeId) external returns (bool delivered) {
         Trade storage trade = trades[tradeId];
         if (trade.outcome != Outcome.RefundPending) revert NotRefundPending();
@@ -367,6 +392,7 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         trade.refundClaimed = true;
         bool ok = _tryTransfer(trade.bondCurrency, trade.trader, trade.bondAmount);
         if (ok) {
+            trade.outcome = Outcome.Refunded;
             escrowLiability[trade.bondCurrency] -= trade.bondAmount;
             emit RefundClaimed(tradeId, trade.trader, trade.bondAmount);
         } else {
@@ -408,10 +434,8 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         return abi.encode(0);
     }
 
-    /// @dev Move escrowed value into the PoolManager and credit it, for both
-    /// ERC-20 and native currencies. For native, the hook already holds the
-    /// escrowed ETH physically (afterSwap's `take` pays it out), so paying in
-    /// is just a value-carrying settle; donating then consumes the credit.
+    /// @dev Move escrowed value (held physically by the hook) into the
+    /// PoolManager and credit it, for both ERC-20 and native currencies.
     function _payIn(Currency currency, uint256 amount) internal {
         if (currency.isAddressZero()) {
             IPoolManager(poolManager).settle{value: amount}();
@@ -432,14 +456,14 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     // Read-only preview for UIs
     // ---------------------------------------------------------------------------
 
-    /// @return pre        Tick before the swap.
-    /// @return post       Tick after the swap.
-    /// @return windowAvg  Window average tick (projected off the held tick
-    ///                    while the window is still open; final once closed).
-    /// @return reversionBps Signed fraction of the impact that reverted.
-    /// @return expectedOutcome 1 = RefundPending, 2 = Donated if settled now.
-    /// @return outcome     Current recorded outcome (0/1/2).
-    /// @return refundClaimed Whether a refund verdict has been claimed.
+    /// @return pre              Tick before the swap.
+    /// @return post             Tick after the swap.
+    /// @return windowAvg        Window average tick (projected off the held
+    ///                          tick while the window is still open; final once closed).
+    /// @return reversionBps     Signed fraction of the impact that reverted.
+    /// @return expectedOutcome  1 Refunded / 3 Donated if settled now.
+    /// @return outcome          Current recorded outcome (0-3).
+    /// @return refundClaimed    Whether a pending refund has been claimed.
     function previewTrade(bytes32 tradeId)
         external
         view
@@ -464,7 +488,7 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         }
         windowAvg = int24(avgTick);
         reversionBps = MarkoutEngine.reversionBps(trade.preTick, trade.postTick, windowAvg);
-        expectedOutcome = MarkoutEngine.decide(trade.preTick, trade.postTick, windowAvg) ? 1 : 2;
+        expectedOutcome = MarkoutEngine.decide(trade.preTick, trade.postTick, windowAvg) ? 1 : 3;
         return (
             trade.preTick,
             trade.postTick,
@@ -476,31 +500,14 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         );
     }
 
-    /// @notice Projected accumulator endpoint for a window still in progress.
-    function projectedWindowAvgTick(bytes32 tradeId) external view returns (int24) {
-        Trade storage trade = trades[tradeId];
-        if (trade.settleAfter == 0) revert UnknownTrade();
-        int56 endCum = cumulativeAt(trade.key.toId(), trade.settleAfter);
-        int256 avgTick =
-            (int256(endCum) - int256(trade.cumAtBond)) / int256(uint256(trade.settleAfter - trade.bondTime));
-        if (avgTick < int256(int24(type(int24).min)) || avgTick > int256(int24(type(int24).max))) {
-            revert TickOutOfBounds();
-        }
-        return int24(avgTick);
-    }
-
     // ---------------------------------------------------------------------------
     // Transient pre-tick passing between beforeSwap and afterSwap
     // ---------------------------------------------------------------------------
 
     uint256 private constant PRE_SLOT = uint256(keccak256("markout.hook.preTick"));
 
-    function _preSlot(PoolId poolId, address sender) private pure returns (bytes32 slot) {
-        slot = keccak256(abi.encode(PRE_SLOT, PoolId.unwrap(poolId), sender));
-    }
-
     function _preSlotStore(PoolId poolId, address sender, int24 tick) internal {
-        bytes32 slot = _preSlot(poolId, sender);
+        bytes32 slot = keccak256(abi.encode(PRE_SLOT, PoolId.unwrap(poolId), sender));
         // solhint-disable-next-line no-inline-assembly
         assembly {
             tstore(slot, tick)
@@ -508,7 +515,7 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
     }
 
     function _preSlotTake(PoolId poolId, address sender) internal returns (int24 tick) {
-        bytes32 slot = _preSlot(poolId, sender);
+        bytes32 slot = keccak256(abi.encode(PRE_SLOT, PoolId.unwrap(poolId), sender));
         // solhint-disable-next-line no-inline-assembly
         assembly {
             tick := tload(slot)

@@ -20,9 +20,15 @@ contract ReenterRefundToken {
     address private armedTarget;
     bool private armed;
     uint256 public reentries;
+    mapping(address => bool) public rejected;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
+
+    /// @notice Blacklist-style rejection: transfers TO `who` fail while set.
+    function setReject(address who, bool on) external {
+        rejected[who] = on;
+    }
 
     function arm(address _hook, bytes32 tradeId, address target) external {
         hook = MarkoutHook(payable(_hook));
@@ -66,6 +72,7 @@ contract ReenterRefundToken {
     }
 
     function _transfer(address from, address to, uint256 value) internal {
+        require(!rejected[to], "transfer rejected");
         require(balanceOf[from] >= value, "insufficient balance");
         balanceOf[from] -= value;
         balanceOf[to] += value;

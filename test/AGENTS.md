@@ -24,9 +24,14 @@ These tests are the only executable spec of the behavioral guarantees. Regressio
 
 ## Current State
 
-43/43 passing (`forge test`), including invariants (256 runs) and the canonical fork suite.
+43/43 passing (`forge test`), including invariants (256 runs) and the canonical fork suite. Rewritten 2026-08-27 for the overhaul cut; every directive guarantee has a test named after its behavior (`test_bondPayable_genericRouter`, `test_bondPayable_attackerAuthoredRouter`, `test_fullReverseNextBlock_refunds`, `test_reverseAfterWindow_donates`, `test_delayedSettlement_matchesWindowClose`, `test_hookCallbacks_rejectNonPoolManager`, `test_noRouterLock_surface`, `test_faucetMint_doesNotBreakEscrow`, `test_claimExistsOnlyWhenDeliveryFailed`); brick-as-success tests (`historyPruned`, `spoofedRouter`, `initializeRouter_locksForever`) removed.
 
 ## Decision Log
+
+### 2026-08-27 — overhaul suite
+- **Change**: integration suite rewritten for the allowlist-free cut: PoolSwapTest (`genericRouter`) and an attacker-authored `FakeRouter` prove the bond is payable by any v4 router; 1:1 next-block reversion refunds at exactly the 50% frontier of the 24 s window; delayed-settlement equality now runs 50 swaps + 200 pokes + 1 day between settle points with NO retention guard (append-only history); callback rejections asserted on four externals; faucet-gift balances no longer break accounting; exact-out probes read the pool delta through PoolSwapTest and assert `paid == amountIn + bond`. Fuzz invariants moved from balance==liability to balance>=liability (gifts allowed). Fork suite: one-arg router ctor, flags `0x30CC`, refund asserted PAID at settle.
+- **Reasoning**: name tests after the guarantees they witness; remove tests that treated a revert-and-lock as success.
+- **Task/session**: overhaul directive, 2026-08-27.
 
 ### 2026-08-25 — full rewrite for the hardened protocol
 - **Change**: all four suites written for the v2 protocol (fixed-window oracle, normalized classifier, pull refunds, deferred donations, locked router, native support). New mocks: `ReenterRefundToken` (reenters `claimRefund` mid-transfer). HookMiner vendored to `test/shared/` after the periphery submodule was pinned back to `4d85e04` (era-matched to v4-core v4.0.0; upstream had deleted the file).
@@ -39,7 +44,7 @@ These tests are the only executable spec of the behavioral guarantees. Regressio
 
 ## Known Gotchas
 
-- **`vm.warp(block.timestamp + n)` inside loops does not accumulate** in this forge version — `block.timestamp` in the argument stays stale, so every iteration warps to the same timestamp. Keep a local `t` accumulator and `vm.warp(t)`; this silently neutered the delayed-settlement and pruning tests until caught.
+- **`vm.warp(block.timestamp + n)` goes stale** in this forge version: after any external call between warps, `block.timestamp` read in the argument returns the pre-warp value, making the next warp a no-op. Compute every warp target into a local `t` BEFORE external calls and `vm.warp(t)`. This silently broke three window-geometry tests until probed.
 - v4 `getTickAtSqrtPrice` floors: sub-tick *downward* moves report −1; zero-tick-impact setups must swap upward (see `test_zeroImpact_refunds`), and the pool must be deepened first (`_seedLiquidity(key, 9999e18)`).
 - `_seedLiquidity` mints `liquidity + 1e18` per side — pass large liquidity values safely.
 - `trades()` destructuring = exactly 11 slots; nested `key` counts as one.

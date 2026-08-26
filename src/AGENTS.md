@@ -2,19 +2,19 @@
 
 ## Ownership
 
-Core Markout protocol contracts: the Uniswap v4 hook, its normalized reversion engine, the trusted router, the capped faucet token, and the local BaseHook base. This is the entire on-chain product.
+Core Markout protocol contracts: the Uniswap v4 hook, its normalized reversion engine, the convenience router, the capped faucet token, and the local BaseHook base. This is the entire on-chain product.
 
 ## Purpose
 
-Implements the hardened PRD thesis: swaps fill immediately at 3 bps while a 20 bps input bond is escrowed; over the trade's **immutable** [bondTime, settleAfter] window (21 s) a hook-maintained previous-tick accumulator measures the time-weighted average tick, and the **normalized reversion classifier** refunds when ≥50% of the trade's own tick impact reverted (organic flow) or donates to in-range LPs when it sustained (informed flow).
+Implements the PRD thesis: swaps fill immediately at 3 bps while a 20 bps input bond — charged to the swap caller's own PoolManager delta, payable through ANY v4 router — is escrowed; over the trade's **immutable** [bondTime, settleAfter] window (24 s ≈ two blocks) an append-only previous-tick accumulator measures the time-weighted average tick, and the **normalized reversion classifier** refunds (paid at settlement) when ≥50% of the trade's own tick impact reverted or donates to in-range LPs when it sustained.
 
 ## What This Controls
 
 If any contract here is wrong: traders lose bonds incorrectly, LPs lose the MEV dividend, swaps revert outright, or verdicts become manipulable. Specifically:
 
 - `MarkoutEngine.decide` — mis-classification flips refunds ↔ donations.
-- `MarkoutHook` — bond math, the observation ring (fixed-window integrity), settlement state machine (verdict-before-value), pull refunds, deferred donations, escrow liability accounting.
-- `MarkoutRouter` — deadline/slippage enforcement, native + ERC-20 settlement, strict transfers, self-encoded beneficiary.
+- `MarkoutHook` — delta-charged bond math, the append-only observation history (fixed-window integrity), terminal settlement (verdict-before-value, at-settle refund payment, retry-only claims), deferred donations, escrow liability accounting.
+- `MarkoutRouter` — convenience only: deadline, exact-in min-out / exact-out max-in, native + ERC-20 settlement, strict transfers, self-encoded beneficiary.
 - `FaucetToken` — demo-asset integrity (capped, un-sabotageable).
 
 ## Connections
@@ -25,9 +25,15 @@ If any contract here is wrong: traders lose bonds incorrectly, LPs lose the MEV 
 
 ## Current State
 
-Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). 43/43 tests green across four suites (unit / integration-attack / fuzz-invariant / canonical-fork). Deployed live against the canonical Sepolia PoolManager 2026-08-25 (hook `0xAe5A786094a36475EF619956bb6F1C6089Def0c0`, router `0x378f4E63f8aFf6e771EAfa95BCAf0Df6571a5ec8`), Etherscan-verified, with a fresh Refund + Donate proof pack (pull-claim and donation-flush included).
+Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). 43/43 tests green across four suites (unit / integration-attack / fuzz-invariant / canonical-fork). Deployed live against the canonical Sepolia PoolManager 2026-08-27 (hook `0x027C6cfD540f0446641846cd004b41561EEd70cC`, router `0x41Fd0B2B581C5F59d468D272dbfcc26e595383CF`, tokens `0x7B0B…`/`0xf3df…`), Etherscan-verified, with a fresh Refund-at-settle + Donate proof pack. The 2026-08-25 deployment (`0xAe5A…` hook, 21 s window, router lock) is STALE — superseded by this cut.
 
 ## Decision Log
+
+### 2026-08-27 — overhaul: allowlist-free bond, 24 s window, trap-free history, PM-only callbacks
+- **Change**: (1) Bond charged via v4 hook-deltas — exact-in on the specified delta in `beforeSwap`, exact-out on the unspecified delta in `afterSwap` (input-side in both modes) — landing in the swap caller's own PoolManager delta; partial-fill overcharge returned in-swap. Router lock, `initializeRouter`, and deployer/tx.origin identity deleted; `MarkoutRouter` reduced to a one-arg convenience contract (deadline, exact-in min-out, exact-out max-in incl. bond, strict transfers, native, beneficiary declaration). (2) Window 21 s → **24 s** (two 12 s blocks): a 1:1 next-block reversion sits exactly at the 50% frontier and refunds — no overshoot. (3) Observation ring (64, prunable) → **append-only unbounded history with binary-searched `cumulativeAt`**: nothing is ever pruned, so pokes/swaps can never freeze escrow or change a verdict (`SettlementHistoryPruned` deleted). (4) Outcomes renumbered None/Refunded/RefundPending/Donated; `settle` **pays deliverable refunds immediately** (zero PM interaction — hook holds the bond tokens), `claimRefund` exists only for failed delivery. (5) `BaseHook` guards every external callback with `msg.sender == poolManager`.
+- **Reasoning**: the 2026-08-25 cut failed four review points — the bond was only payable through a Markout-settling router (an allowlist in effect), a 21 s window with 12 s blocks made next-block reversions donate without overshoot, the prunable ring let poke spam trap bonds behind `SettlementHistoryPruned`, and callbacks lacked explicit access control; `tx.origin` deployer identity was a footgun of its own.
+- **Rejected alternative(s)**: hook-minted PM 6909 claims for the bond (swapper never pays); beforeSwap-only charging (cannot know exact-out input); pruning with a Donate-on-pruned fallback (changes the verdict); T=21 with a 40% frontier (weaker toxic signal than aligning the window to block cadence).
+- **Task/session**: overhaul directive, 2026-08-27.
 
 ### 2026-08-25 — fixed-window previous-tick oracle + normalized classifier
 - **Change**: `MarkoutEngine.decide(int24 pre, int24 post, int24 windowAvg)` refunds iff ≥50% of the signed impact reverted (zero impact refunds; overshoot refunds; away donates); `reversionBps` preview helper. Hook keeps a 64-entry per-pool observation ring of `(timestamp, cumulative, tick)` with previous-tick attribution (elapsed time accrues to the tick held *before* the update); `cumulativeAt(poolId, t)` interpolates any past or projected-future point; `settle`/`previewTrade` always evaluate over `[bondTime, settleAfter]` regardless of settle time. Same-block beforeSwap→afterSwap updates rewrite the held tick in place (no accrual).

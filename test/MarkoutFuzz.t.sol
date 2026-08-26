@@ -45,16 +45,18 @@ contract MarkoutFuzzTest is Test {
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
-    function invariant_escrowConservation() public view {
-        assertEq(
+    function invariant_escrowCovered() public view {
+        // Balances must COVER liabilities; they may exceed them (gratuitous
+        // deposits are gifts, not obligations).
+        assertGe(
             handler.token0().balanceOf(address(handler.hook())),
             handler.hook().escrowLiability(Currency.wrap(address(handler.token0()))),
-            "conservation: token0 balance != liability"
+            "conservation: token0 balance below liability"
         );
-        assertEq(
+        assertGe(
             handler.token1().balanceOf(address(handler.hook())),
             handler.hook().escrowLiability(Currency.wrap(address(handler.token1()))),
-            "conservation: token1 balance != liability"
+            "conservation: token1 balance below liability"
         );
     }
 
@@ -143,14 +145,13 @@ contract Handler is StdUtils {
             address(this),
             uint160(
                 Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG
-                    | Hooks.AFTER_SWAP_FLAG
+                    | Hooks.AFTER_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
             ),
             type(MarkoutHook).creationCode,
             abi.encode(address(manager))
         );
         hook = new MarkoutHook{salt: salt}(IPoolManager(address(manager)));
-        router = new MarkoutRouter(IPoolManager(address(manager)), address(hook));
-        hook.initializeRouter(address(router));
+        router = new MarkoutRouter(IPoolManager(address(manager)));
 
         key = PoolKey({
             currency0: Currency.wrap(address(token0)),
@@ -268,13 +269,10 @@ contract Handler is StdUtils {
         Ghost storage g = ghostList[seed % n];
         (,,,,, uint32 settleAfter, MarkoutHook.Outcome outcome,) = this.tradeView(g.id);
         if (outcome != MarkoutHook.Outcome.None || block.timestamp < settleAfter) return;
-        // Honest-revert guard: settlement over a pruned ring reverts by
-        // design; skip so runs exercise behavior, not retention limits.
-        if (swapCount - g.pushesAtBond > hook.OBSERVATION_CAPACITY() - 4) return;
-
         hook.settle(g.id);
         (,,,,, uint32 settleAfter2, MarkoutHook.Outcome settled,) = this.tradeView(g.id);
         g.outcome = uint8(settled);
+        if (settled == MarkoutHook.Outcome.Refunded) g.released += g.bond; // paid at settle
     }
 
     function doClaimRefund(uint256 seed) external {
