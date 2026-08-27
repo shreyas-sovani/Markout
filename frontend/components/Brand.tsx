@@ -5,7 +5,17 @@ export function Seal({ size = 36 }: { size?: number }) {
   return (
     <span
       className="grid shrink-0 place-items-center rounded-xl bg-brand font-display font-bold leading-none text-canvas shadow-seal"
-      style={{ width: size, height: size, fontSize: size * 0.56 }}
+      style={{
+        display: "grid",
+        placeItems: "center",
+        width: size,
+        height: size,
+        fontSize: size * 0.56,
+        backgroundColor: "#B5276F",
+        color: "#faf8f2",
+        borderRadius: 12,
+        flexShrink: 0,
+      }}
     >
       M
     </span>
@@ -15,9 +25,9 @@ export function Seal({ size = 36 }: { size?: number }) {
 /** Clickable wordmark used in the nav. */
 export function Wordmark({ href = "/", sub }: { href?: string; sub?: string }) {
   return (
-    <Link href={href} className="flex items-center gap-3">
+    <Link href={href} className="flex items-center gap-3" style={{ display: "flex", alignItems: "center", gap: 12 }}>
       <Seal />
-      <span className="leading-tight">
+      <span className="leading-tight" style={{ display: "flex", flexDirection: "column" }}>
         <span className="block font-display text-[19px] font-semibold tracking-tightest text-ink">
           Markout
         </span>

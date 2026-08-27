@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Real properties (not @apply) so the page still paints if Tailwind fails to expand. */
+html,
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #faf8f2;
+  color: #191710;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
 @layer base {
   :root {
     color-scheme: light;
@@ -58,7 +69,9 @@
   }
 
   body {
-    @apply bg-canvas text-ink font-sans antialiased;
+    background-color: #faf8f2;
+    color: #191710;
+    font-family: var(--font-sans), system-ui, sans-serif;
     background-image:
       radial-gradient(680px 420px at 88% -6%, rgba(176, 127, 37, 0.1), transparent 62%),
       radial-gradient(620px 460px at 4% 2%, rgba(181, 39, 111, 0.07), transparent 60%);

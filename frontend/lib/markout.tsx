@@ -153,7 +153,9 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
   // ---- live pool state ----
   const [price, setPrice] = useState<number | null>(null);
   const [liveTick, setLiveTick] = useState<number | null>(null);
-  const [chainNow, setChainNow] = useState<bigint>(0n);
+  const [chainBlockNow, setChainBlockNow] = useState<bigint>(0n); // raw block timestamp
+  const [chainNow, setChainNow] = useState<bigint>(0n); // smoothed, ticks every 250 ms
+  const chainSyncWall = useRef(0);
   const [rpcOk, setRpcOk] = useState(true);
   const [trace, setTrace] = useState<{ t: number; tick: number }[]>([]);
   const traceRef = useRef<{ t: number; tick: number }[]>([]);
@@ -194,7 +196,16 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     const poll = async () => {
       try {
         const b = await publicClient.getBlock();
-        if (alive) setChainNow(b.timestamp);
+        if (alive) {
+          // monotonic ingest: a lagging RPC must never move the clock back
+          setChainBlockNow((prev) => {
+            if (b.timestamp > prev) {
+              chainSyncWall.current = Date.now();
+              return b.timestamp;
+            }
+            return prev;
+          });
+        }
       } catch {
         /* keep last */
       }
@@ -207,10 +218,25 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // smooth the chain clock: interpolate between block polls so countdowns
+  // tick second-by-second instead of jumping on each 3 s RPC poll
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (chainBlockNow > 0n && chainSyncWall.current > 0) {
+        // cap extrapolation at 18 s (1.5 blocks) so a stalled RPC can't run
+        // the clock ahead of the chain; monotonic so it can't run backward
+        const elapsed = Math.min(Math.floor((Date.now() - chainSyncWall.current) / 1000), 18);
+        const est = chainBlockNow + BigInt(elapsed);
+        setChainNow((prev) => (est > prev ? est : prev));
+      }
+    }, 250);
+    return () => clearInterval(iv);
+  }, [chainBlockNow]);
+
   // record a trace point whenever a fresh chain time + tick are both in hand
   useEffect(() => {
-    if (liveTick === null || chainNow === 0n) return;
-    const t = Number(chainNow);
+    if (liveTick === null || chainBlockNow === 0n) return;
+    const t = Number(chainBlockNow);
     const arr = traceRef.current;
     const last = arr[arr.length - 1];
     if (!last || last.t < t) {
@@ -218,7 +244,7 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
       if (arr.length > 360) arr.shift();
       setTrace([...arr]);
     }
-  }, [liveTick, chainNow]);
+  }, [liveTick, chainBlockNow]);
 
   // ---- traction: cumulative bond value flushed to LPs ----
   const [traction, setTraction] = useState<{ events: number; a0: bigint; a1: bigint } | null>(null);

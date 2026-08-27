@@ -53,6 +53,8 @@ export default function AppPage() {
 
         <NetworkBanner />
 
+        <GuideBanner step={step} />
+
         <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
           {/* ── Swap panel ── */}
           <SwapPanel />
@@ -76,7 +78,12 @@ function SwapPanel() {
 
   return (
     <Card className="overflow-hidden">
-      <div className="tape border-b border-edge px-6 py-3">Swap · bond posted at 3 bps</div>
+      <div className="tape flex items-center justify-between border-b border-edge px-6 py-3">
+        <span>Swap · bond posted at 3 bps</span>
+        {m.address && (m.sellBal ?? 0n) > 0n && (m.buyBal ?? 0n) > 0n && (
+          <span className="rounded-full bg-canvas/15 px-2 py-0.5 text-[10px] tracking-[0.14em]">STEP 3 HERE ↓</span>
+        )}
+      </div>
       <CardContent className="p-6 pt-5">
         {!connected ? (
           <ConnectCall />
@@ -89,6 +96,7 @@ function SwapPanel() {
           </div>
         ) : (
           <>
+            <FaucetBlock />
             <Field
               label="You sell"
               value={m.amountStr}
@@ -98,7 +106,7 @@ function SwapPanel() {
               balance={m.sellBal}
               secondary={
                 <Button variant="ghost" size="sm" className="h-7 px-2.5 text-[11.5px]" disabled={m.busy !== null} onClick={() => void m.onMint()}>
-                  {m.busy === "mint" ? "minting…" : "+100 each"}
+                  {m.busy === "mint" ? "Minting…" : "Get tokens"}
                 </Button>
               }
             />
@@ -261,7 +269,14 @@ function MemoryPanel() {
 
   return (
     <Card className="overflow-hidden">
-      <div className="tape border-b border-edge px-6 py-3">The 24-second memory</div>
+      <div className="tape flex items-center justify-between border-b border-edge px-6 py-3">
+        <span>The 24-second memory</span>
+        {m.active && m.active.outcome === 0 && (
+          <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] tracking-[0.14em] text-canvas animate-pulseSoft">
+            STEP 4 · SETTLE ↓
+          </span>
+        )}
+      </div>
       <CardContent className="p-6 pt-5">
         <div className="mb-4 grid grid-cols-3 gap-3">
           <Kpi label="pool" value={m.price ? m.price.toFixed(5) : "…"} sub="MDB / MDA" />
@@ -287,6 +302,16 @@ function MemoryPanel() {
 
         {a ? (
           <div aria-live="polite" className="mt-5">
+            {a.outcome === 0 && !m.windowOpen && (
+              <div className="mb-4 rounded-xl border border-gold/40 bg-gold/[0.07] px-4 py-3 text-center font-sans text-[13px] font-semibold text-ink">
+                Window closed — press the big Settle button below.
+              </div>
+            )}
+            {a.outcome === 0 && m.windowOpen && (
+              <div className="mb-4 rounded-xl border border-line bg-secondary px-4 py-3 text-center font-sans text-[12.5px] text-muted">
+                Recording… the countdown below reaches zero, then anyone may settle.
+              </div>
+            )}
             <div className="text-center">
               <div className="font-display text-[44px] font-semibold leading-none tracking-tight tabular-nums text-ink">
                 {a.outcome === 1 ? (
@@ -482,4 +507,67 @@ function OutcomeBadge({ outcome, claimed }: { outcome: number; claimed: boolean 
     return <Badge variant={claimed ? "outline" : "brand"}>{claimed ? "Claimed" : "RefundPending"}</Badge>;
   if (outcome === 3) return <Badge variant="gold">Donated</Badge>;
   return <Badge variant="outline">window open</Badge>;
+}
+
+
+/* ───────────────────────── guided CTA banner ───────────────────────── */
+
+function GuideBanner({ step }: { step: number }) {
+  const m = useMarkout();
+  if (step > 1) return null; // past minting — the panels themselves guide
+
+  return (
+    <Card className="mb-5 animate-rise overflow-hidden border-brand/30 bg-brand/[0.04]">
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+        <div className="flex items-center gap-4">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gold font-mono text-[16px] font-semibold text-canvas shadow-[0_0_0_6px_rgba(214,162,63,0.18)] animate-pulseSoft">
+            {step + 1}
+          </span>
+          <div>
+            <div className="font-display text-[19px] font-semibold tracking-tight text-ink">
+              {step === 0 ? "Connect your wallet to begin" : "Get demo tokens"}
+            </div>
+            <div className="font-sans text-[13px] text-muted">
+              {step === 0
+                ? "Sepolia · injected wallet (MetaMask, Rabby)"
+                : "One click mints 100 MDA + 100 MDB — capped faucet, no seed phrase, no faucet site"}
+            </div>
+          </div>
+        </div>
+        {step === 0 ? (
+          <Button size="lg" onClick={() => void m.onConnect()} disabled={m.connBusy}>
+            {m.connBusy ? "Connecting…" : "Connect Wallet"}
+          </Button>
+        ) : (
+          <Button size="lg" onClick={() => void m.onMint()} disabled={m.busy !== null}>
+            {m.busy === "mint" ? "Minting…" : "Get 100 MDA + 100 MDB"}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ───────────────────────── faucet block ───────────────────────── */
+
+function FaucetBlock() {
+  const m = useMarkout();
+  const empty = (m.sellBal ?? 0n) === 0n && (m.buyBal ?? 0n) === 0n;
+  if (!empty) return null;
+
+  return (
+    <div className="mb-4 rounded-xl border border-gold/40 bg-gold/[0.07] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="eyebrow text-gold">Demo tokens</div>
+          <div className="mt-0.5 font-sans text-[12.5px] text-ink-soft">
+            This pool runs on capped faucet tokens — mint yours below.
+          </div>
+        </div>
+        <Button onClick={() => void m.onMint()} disabled={m.busy !== null}>
+          {m.busy === "mint" ? "Minting…" : "Mint 100 + 100"}
+        </Button>
+      </div>
+    </div>
+  );
 }

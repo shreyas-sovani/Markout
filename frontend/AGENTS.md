@@ -18,9 +18,15 @@ Nothing in the protocol — the UI is read/write over existing contracts. What b
 
 ## Current State
 
-Working: `next build` passes (`/` 130 kB, `/app` 244 kB, `/docs` 130 kB first load); SSR verified for all three routes (hero/ticker/ledgers/ink band on `/`, console + tape + ledger on `/app`, TOC + Formula/Callout/Step on `/docs`). Read pipeline (poolId, slot0 extsload, chunked logs, trades multicall, previewTrade, traction) and tx pipeline (mint → exact approve → simulated swap → settle → flush) carried over unchanged from the previous single-page app and validated against live canonical-Sepolia state on 2026-08-27. Constants point at the 2026-08-27 deployment (hook `0x027C…`, 24 s window, outcome enum 1=Refunded/2=RefundPending/3=Donated, at-settle refunds). The 2026-08-25 addresses are stale.
+Working: `next build` passes; SSR verified for all three routes. Tailwind is CJS `tailwind.config.js` + ESM `postcss.config.mjs` (do not restore `tailwind.config.ts` with `require()` inside `export default` — that skips PostCSS on some Node/Vercel paths and the page renders as raw Times HTML). Read/tx pipelines unchanged. Constants point at the 2026-08-27 deployment (hook `0x027C…`, 24 s window, outcome enum 1=Refunded/2=RefundPending/3=Donated, at-settle refunds). The 2026-08-25 addresses are stale.
 
 ## Decision Log
+
+### 2026-08-27 — unstyled /app was missing compiled CSS
+- **Change**: dropped dual Tailwind/PostCSS configs (`tailwind.config.ts` + `postcss.config.js`) for a single CJS `tailwind.config.js` (plugin via `require`) and ESM `postcss.config.mjs`. `globals.css` body paint is raw CSS, not `@apply`. Root layout + Wordmark/SiteNav carry inline cream/ink/flex so a CSS 404 still isn't Times-on-white jammed "MMarkout". `frontend/vercel.json` only sets `"framework": "nextjs"` (no `outputDirectory`).
+- **Reasoning**: the Times / "HomeDocsApp" screenshot is Tailwind never applying. Two `next dev` processes (3000 + 3001) plus `next build` into the same `.next` deletes `app/layout.css` and leaves hashed production CSS, so the HTML still asks for a file that 404s. `require()` inside ESM `tailwind.config.ts` is a second way PostCSS silently skips.
+- **Rejected alternative(s)**: Tailwind v4 `@tailwindcss/postcss` (this app is Tailwind 3.4); setting Vercel `outputDirectory: ".next"` (that turns the Next builder into a static dump); restyling `/app` (Claude's guided-flow JSX was fine — CSS never loaded).
+- **Task/session**: fix /app rendering as unstyled HTML, 2026-08-27.
 
 ### 2026-08-27 — GitHub remote renamed to Markout
 - **Change**: footer GitHub link now `https://github.com/shreyas-sovani/Markout`. Local `origin` points at the same URL. Hackathon badge still says UHI10 (event name, not the repo).
@@ -71,6 +77,10 @@ Working: `next build` passes (`/` 130 kB, `/app` 244 kB, `/docs` 130 kB first lo
 
 ## Known Gotchas
 
+- **Chain clock must be monotonic**: the fallback RPC pool can return lagging blocks; ingest `getBlock().timestamp` only if it advances, extrapolate at most 18 s between polls, and never let the smoothed `chainNow` move backward — otherwise the countdown visibly jumps (12 → 9 → 12) and re-opens.
+- **MemoryTape geometry**: clamp every x into the frame, build the y-domain from the union of all drawn series (plus 15% pad), and keep the window rendered after settlement for context; `now` falls back to the newest trace point until a chain timestamp arrives.
+
+- Never run `next build` while `next dev` is up, and never run two `next dev` processes against `frontend/`. They share `frontend/.next`. After a production build, that folder has hashed CSS (`*_*.css`) and no `app/layout.css`; the dev HTML still links `/_next/static/css/app/layout.css` → 404 → Times, "MMarkoutThe memory console", "HomeDocsApp". Fix: kill extra Next PIDs, `rm -rf frontend/.next`, one `npm run dev`. Port 3000 in use → Next silently binds 3001, so you may be looking at the zombie on 3000.
 - Addresses in `lib/contracts.ts` must be EIP-55 checksummed — viem rejects bad checksums (the README's original hook/PoolManager casing was wrong; corrected everywhere 2026-08-25).
 - `sqrtPriceLimitX96` is `uint160`; `MIN_SQRT_PRICE+1` / `MAX_SQRT_PRICE-1` constants live in `lib/contracts.ts`.
 - `trades(bytes32)` returns a named struct → viem gives an object with `key` as a nested object. Never index numerically.

@@ -1,12 +1,7 @@
-import type { Config } from "tailwindcss";
-
-/**
- * Markout — warm-paper light theme. Cream canvas, ink text, magenta brand
- * with a gold accent. Type set by next/font in app/layout.tsx via CSS variables.
- */
-const config: Config = {
+/** @type {import('tailwindcss').Config} */
+module.exports = {
   darkMode: ["class"],
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
@@ -20,9 +15,7 @@ const config: Config = {
         brand: { DEFAULT: "#B5276F", dim: "#931E5A", bright: "#D24B92" },
         gold: { DEFAULT: "#b07f25", bright: "#d6a23f", soft: "#f1e6cb" },
         rose: "#b4452f",
-        // crisp near-black hairline for the bordered editorial layout
         edge: "#211d14",
-        // shadcn semantic tokens — CSS variables defined in app/globals.css
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -70,7 +63,6 @@ const config: Config = {
           "0%,100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-8px)" },
         },
-        // seamless marquee: track holds two identical copies, shift one copy width
         marquee: {
           "0%": { transform: "translateX(0)" },
           "100%": { transform: "translateX(-50%)" },
@@ -108,5 +100,3 @@ const config: Config = {
   },
   plugins: [require("tailwindcss-animate")],
 };
-
-export default config;

@@ -36,7 +36,15 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${display.variable} ${sans.variable} ${mono.variable}`}>
-      <body>
+      <body
+        style={{
+          margin: 0,
+          minHeight: "100vh",
+          backgroundColor: "#faf8f2",
+          color: "#191710",
+          fontFamily: "var(--font-sans), system-ui, sans-serif",
+        }}
+      >
         <MarkoutProvider>{children}</MarkoutProvider>
       </body>
     </html>
