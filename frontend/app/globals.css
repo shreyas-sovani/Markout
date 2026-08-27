@@ -6,7 +6,7 @@
   :root {
     color-scheme: light;
 
-    /* shadcn semantic tokens, mapped to Lambda's cream/ink/pine palette */
+    /* shadcn semantic tokens mapped to the cream / ink / magenta palette */
     --background: 45 44% 96%; /* canvas  #faf8f2 */
     --foreground: 47 22% 8%; /* ink     #191710 */
     --card: 0 0% 100%; /* surface #ffffff */

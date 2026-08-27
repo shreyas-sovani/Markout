@@ -1,9 +1,8 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Lambda — warm-paper light theme. Cream canvas, ink text, a deep pine-green
- * brand (yield / money) with a gold "fortune" accent. Type set by next/font in
- * app/layout.tsx via CSS variables.
+ * Markout — warm-paper light theme. Cream canvas, ink text, magenta brand
+ * with a gold accent. Type set by next/font in app/layout.tsx via CSS variables.
  */
 const config: Config = {
   darkMode: ["class"],

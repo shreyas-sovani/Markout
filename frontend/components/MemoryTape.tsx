@@ -3,7 +3,7 @@
 import { tickToPrice } from "@/lib/contracts";
 
 /**
- * The 24-second memory tape on Lambda paper: live ink trace of the pool tick,
+ * The 24-second memory tape on cream paper: live ink trace of the pool tick,
  * the trade's fixed window, pre/post/50%-frontier lines, the window average,
  * and the verdict once terminal. Countdown-correct geometry from chain time.
  */

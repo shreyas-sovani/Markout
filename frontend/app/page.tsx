@@ -10,9 +10,9 @@ import { Separator } from "@/components/ui/separator";
 import { HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER } from "@/lib/contracts";
 
 /**
- * Markout landing on Lambda's shell: cream paper, ink text, magenta brand,
- * hatch strip + facts ticker, editorial sections with hairline rules, and a
- * full-bleed ink band for the differentiator.
+ * Markout landing: cream paper, ink text, magenta brand, hatch strip + facts
+ * ticker, editorial sections with hairline rules, and a full-bleed ink band
+ * for the differentiator.
  */
 export default function Landing() {
   return (

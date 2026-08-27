@@ -194,7 +194,7 @@ export default function Docs() {
   );
 }
 
-/* ── docs chrome (Lambda treatment) ── */
+/* ── docs chrome ── */
 
 function Toc() {
   const items: [string, string][] = [

@@ -11,7 +11,7 @@ This file is the canonical source of instructions for any AI coding agent workin
 ### Things actively in flux right now
 
 - Code stable: `forge test` 43/43 (engine unit+fuzz, integration+attack, invariant fuzz, canonical-Sepolia fork). Canonical-PM deployment live and Etherscan-verified (2026-08-27: hook `0x027C6cfD540f0446641846cd004b41561EEd70cC`, router `0x41Fd0B2B581C5F59d468D272dbfcc26e595383CF`, faucet tokens `0x7B0B…`/`0xf3df…`; proof pack = 1:1 next-block reversion refunded AT SETTLE + donate/flush). All prior deployments are stale.
-- Product polish pass done (2026-08-27): README/demo.md rewritten in product voice (LP-first, `No partner integrations`, honest limits, numbers out of the headline). Frontend then re-cloned from `lambda-protocol/frontend/` per directive: cream paper / magenta / gold, Fraunces + Hanken Grotesk + JetBrains Mono, Tailwind + shadcn, three routes (`/` landing, `/app` memory console, `/docs`) with the god-page split into `lib/markout.tsx` (MarkoutProvider). `next build` green; SSR verified per route; tx wiring unchanged.
+- Product polish pass done (2026-08-27): README/demo.md rewritten in product voice (LP-first, `No partner integrations`, honest limits, numbers out of the headline). Frontend rebuilt as a cream-paper product: magenta / gold, Fraunces + Hanken Grotesk + JetBrains Mono, Tailwind + shadcn, three routes (`/` landing, `/app` memory console, `/docs`) with the god-page split into `lib/markout.tsx` (MarkoutProvider). `next build` green; SSR verified per route; tx wiring unchanged.
 - Remaining human work: demo video (hole left in README + UI), hosted URL (hole left), final submission.
 
 ---

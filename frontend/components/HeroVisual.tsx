@@ -2,7 +2,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 /**
- * Hero product-preview collage in Lambda's paper style: floating, overlapping
+ * Hero product-preview collage on cream paper: floating, overlapping
  * cards that show Markout's real loop — the bonded swap, the 24-second memory
  * tape, and the verdict routing. Pure SVG + CSS, no client JS.
  */
