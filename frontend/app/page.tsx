@@ -1,1509 +1,552 @@
-"use client";
+import Link from "next/link";
+import { Seal } from "@/components/Brand";
+import { HeroVisual } from "@/components/HeroVisual";
+import { SiteNav } from "@/components/SiteNav";
+import { SiteFooter } from "@/components/SiteFooter";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER } from "@/lib/contracts";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  parseAbiItem,
-  parseEther,
-  decodeEventLog,
-  formatEther,
-  type Hash,
-  type Address,
-} from "viem";
-import { toast, Toaster } from "sonner";
-
-import {
-  BOND_BPS,
-  ERC20_ABI,
-  HOOK,
-  HOOK_ABI,
-  MAX_SQRT_PRICE,
-  MIN_SQRT_PRICE,
-  POOL_ID,
-  POOL_KEY,
-  POOL_MANAGER,
-  POOL_MANAGER_ABI,
-  PROOFS,
-  ROUTER,
-  ROUTER_ABI,
-  RPC_URLS,
-  SETTLEMENT_DELAY,
-  SLOT0_SLOT,
-  SWAP_FEE_BPS,
-  TOKEN0,
-  TOKEN1,
-  TOPICS,
-  explorerAddress,
-  explorerTx,
-  formatTokens,
-  getLogsChunked,
-  publicClient,
-  sqrtX96ToPrice,
-  tickToPrice,
-  walletClientFrom,
-  type TradeRow,
-} from "@/lib/contracts";
-import { useWallet, getEthereum } from "@/lib/wallet";
-import { usePoll } from "@/lib/usePoll";
-
-const SWAP_BONDED_EVENT = parseAbiItem(
-  "event SwapBonded(bytes32 indexed tradeId, address indexed trader, int24 preTick, int24 postTick, uint256 bondAmount)",
-);
-const MINT_SIZE = 100n * 10n ** 18n;
-const DEMO_BUY = 1n * 10n ** 18n;
-const DEMO_REVERSE = 1n * 10n ** 18n; // 1:1 next-block reversion — enough at T=24
-const DONATION_FLUSHED_TOPIC =
-  "0x5bc93a443713f36a3668bdfb5ef37b3b5ee9d5dbd41b87e4912964705ac3cc66";
-
-function short(addr: string, n = 4): string {
-  return `${addr.slice(0, 2 + n)}…${addr.slice(-n)}`;
-}
-
-function revertReason(e: unknown): string {
-  const err = e as { shortMessage?: string; message?: string; details?: string };
+/**
+ * Markout landing on Lambda's shell: cream paper, ink text, magenta brand,
+ * hatch strip + facts ticker, editorial sections with hairline rules, and a
+ * full-bleed ink band for the differentiator.
+ */
+export default function Landing() {
   return (
-    err.shortMessage ||
-    err.details ||
-    (err.message ?? "reverted").replace(/^Execution reverted:\s*/, "").slice(0, 160)
+    <div className="relative z-10">
+      <Ticker />
+      <SiteNav
+        sub="The pool that remembers"
+        links={[
+          { href: "#how", label: "How it works" },
+          { href: "#live", label: "Live on testnet" },
+          { href: "/docs", label: "Docs" },
+        ]}
+        rightSlot={
+          <Button asChild size="sm">
+            <Link href="/app">Launch App →</Link>
+          </Button>
+        }
+      />
+      <Hero />
+      <HowItWorks />
+      <Comparison />
+      <InkBand />
+      <LiveOnTestnet />
+      <FinalCta />
+      <SiteFooter />
+    </div>
   );
 }
 
-// ---------------------------------------------------------------------------
+/* ───────────────────────── top ticker ───────────────────────── */
 
-export default function Page() {
-  const { address, chainId, connect, disconnect, hasProvider } = useWallet();
+const TICKER = [
+  "Live on the canonical Sepolia PoolManager",
+  "Any v4 router can pay the bond — no allowlist, no settleFor",
+  "24-second fixed window: verdicts can't change with delay",
+  "43 passing Foundry tests incl. canonical fork",
+  "Toxic one-shot flow pays in-range LPs",
+];
 
-  const [zeroForOne, setZeroForOne] = useState(true);
-  const [amountStr, setAmountStr] = useState("1");
-  const [slippagePct, setSlippagePct] = useState("0.5");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [connBusy, setConnBusy] = useState(false);
-  const [activeId, setActiveId] = useState<`0x${string}` | null>(null);
-  const [tradesVersion, setTradesVersion] = useState(0);
-  const [pilot, setPilot] = useState<"refund" | "donate" | null>(null);
-  const pilotAbort = useRef(false);
-
-  // ---- live pool state ----
-  const [price, setPrice] = useState<number | null>(null);
-  const [liveTick, setLiveTick] = useState<number | null>(null);
-  const [chainNow, setChainNow] = useState<bigint>(0n);
-  const [rpcOk, setRpcOk] = useState(true);
-
-  // rolling tick trace for the instrument's live phosphor line
-  const [trace, setTrace] = useState<{ t: number; tick: number }[]>([]);
-  const traceRef = useRef<{ t: number; tick: number }[]>([]);
-  useEffect(() => {
-    let alive = true;
-    const poll = async () => {
-      try {
-        const raw = (await publicClient.readContract({
-          address: POOL_MANAGER,
-          abi: POOL_MANAGER_ABI,
-          functionName: "extsload",
-          args: [SLOT0_SLOT],
-        })) as `0x${string}`;
-        const value = BigInt(raw);
-        const sqrt = value & ((1n << 160n) - 1n);
-        const t = (value >> 160n) & 0xffffffn;
-        const signed = t >= 1n << 23n ? t - (1n << 24n) : t;
-        if (alive) {
-          setPrice(sqrtX96ToPrice(sqrt));
-          setLiveTick(Number(signed));
-          setRpcOk(true);
-        }
-      } catch {
-        if (alive) setRpcOk(false);
-      }
-    };
-    poll();
-    const iv = setInterval(poll, 4000);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    const poll = async () => {
-      try {
-        const b = await publicClient.getBlock();
-        if (alive) setChainNow(b.timestamp);
-      } catch {
-        /* keep last */
-      }
-    };
-    poll();
-    const iv = setInterval(poll, 3000);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
-  }, []);
-
-  // record a trace point whenever a fresh chain time + tick are both in hand
-  useEffect(() => {
-    if (liveTick === null || chainNow === 0n) return;
-    const t = Number(chainNow);
-    const arr = traceRef.current;
-    const last = arr[arr.length - 1];
-    if (!last || last.t < t) {
-      arr.push({ t, tick: liveTick });
-      if (arr.length > 360) arr.shift();
-      setTrace([...arr]);
-    }
-  }, [liveTick, chainNow]);
-
-  // ---- traction: cumulative bond value flushed to LPs (quiet strip) ----
-  const [traction, setTraction] = useState<{ events: number; a0: bigint; a1: bigint } | null>(null);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const head = await publicClient.getBlockNumber();
-        const from = head > 150000n ? head - 150000n : 1n;
-        let events = 0;
-        let a0 = 0n;
-        let a1 = 0n;
-        for (let f = from; f <= head; f += 49000n) {
-          const to = f + 48999n > head ? head : f + 48999n;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const logs = await (publicClient as any).getLogs({
-            address: HOOK,
-            topics: [DONATION_FLUSHED_TOPIC],
-            fromBlock: f,
-            toBlock: to,
-          });
-          for (const l of logs) {
-            const d = l.data.slice(2);
-            a0 += BigInt("0x" + d.slice(0, 64));
-            a1 += BigInt("0x" + d.slice(64, 128));
-            events += 1;
-          }
-          if (to >= head) break;
-        }
-        if (alive) setTraction({ events, a0, a1 });
-      } catch {
-        /* strip stays quiet on RPC failure */
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [tradesVersion]);
-
-  // ---- balances + allowance ----
-  const sellToken = zeroForOne ? TOKEN0 : TOKEN1;
-  const bal0 = usePoll(
-    async () =>
-      address
-        ? ((await publicClient.readContract({
-            address: TOKEN0,
-            abi: ERC20_ABI,
-            functionName: "balanceOf",
-            args: [address],
-          })) as bigint)
-        : undefined,
-    [address],
-    6000,
-  );
-  const bal1 = usePoll(
-    async () =>
-      address
-        ? ((await publicClient.readContract({
-            address: TOKEN1,
-            abi: ERC20_ABI,
-            functionName: "balanceOf",
-            args: [address],
-          })) as bigint)
-        : undefined,
-    [address],
-    6000,
-  );
-  const sellBal = (zeroForOne ? bal0.data : bal1.data) as bigint | undefined;
-  const buyBal = (zeroForOne ? bal1.data : bal0.data) as bigint | undefined;
-
-  const allowance = usePoll(
-    async () =>
-      address
-        ? ((await publicClient.readContract({
-            address: sellToken,
-            abi: ERC20_ABI,
-            functionName: "allowance",
-            args: [address, ROUTER],
-          })) as bigint)
-        : undefined,
-    [address, sellToken],
-    8000,
-  );
-
-  // ---- derived ----
-  const amountIn = useMemo(() => {
-    try {
-      const v = parseEther(amountStr);
-      return v > 0n ? v : null;
-    } catch {
-      return null;
-    }
-  }, [amountStr]);
-
-  const bond = amountIn ? (amountIn * BOND_BPS) / 10000n : 0n;
-  const tooSmall = amountIn !== null && bond === 0n;
-  const needApprove = amountIn !== null && (allowance.data ?? 0n) < amountIn + bond;
-  const estOut = useMemo(() => {
-    if (price === null || !amountIn) return null;
-    const gross = zeroForOne
-      ? (amountIn * BigInt(Math.round(price * 1e6))) / 10n ** 6n
-      : (amountIn * 10n ** 6n) / BigInt(Math.round(price * 1e6));
-    return (gross * (10000n - SWAP_FEE_BPS)) / 10000n;
-  }, [price, amountIn, zeroForOne]);
-  const minOut = useMemo(() => {
-    if (!estOut) return 0n;
-    const slipBps = BigInt(Math.round(parseFloat(slippagePct || "0") * 100));
-    return (estOut * (10000n - slipBps)) / 10000n;
-  }, [estOut, slippagePct]);
-
-  // ---- trade recovery: authoritative rows from logs + chain state ----
-  const [trades, setTrades] = useState<TradeRow[]>([]);
-  useEffect(() => {
-    if (!address) {
-      setTrades([]);
-      return;
-    }
-    let alive = true;
-    (async () => {
-      try {
-        const head = await publicClient.getBlockNumber();
-        const from = head > 150000n ? head - 150000n : 0n;
-        const logs = await getLogsChunked({
-          address: HOOK,
-          event: SWAP_BONDED_EVENT,
-          args: { trader: address },
-          fromBlock: from,
-          toBlock: head,
-        });
-        const rows: TradeRow[] = [...logs]
-          .sort((a, b) => Number(b.blockNumber - a.blockNumber))
-          .slice(0, 12)
-          .map((l) => {
-            const d = decodeEventLog({
-              abi: HOOK_ABI,
-              data: l.data,
-              topics: l.topics as never,
-            }) as unknown as { args: { tradeId: `0x${string}`; preTick: number; postTick: number } };
-            return {
-              id: d.args.tradeId,
-              trader: address,
-              bondCurrency: "",
-              bondAmount: 0n,
-              preTick: d.args.preTick,
-              postTick: d.args.postTick,
-              bondTime: 0n,
-              settleAfter: 0n,
-              outcome: -1,
-              refundClaimed: false,
-              txHash: l.transactionHash,
-            };
-          });
-        if (rows.length > 0) {
-          const results = (await publicClient.multicall({
-            contracts: rows.map((r) => ({
-              address: HOOK,
-              abi: HOOK_ABI,
-              functionName: "trades",
-              args: [r.id],
-            })),
-            allowFailure: false,
-          })) as unknown as Record<string, never>[];
-          rows.forEach((r, i) => {
-            const t = results[i] as unknown as {
-              trader: string;
-              bondCurrency: string;
-              bondAmount: bigint;
-              bondTime: number;
-              settleAfter: number;
-              outcome: number;
-              refundClaimed: boolean;
-            };
-            r.bondCurrency = t.bondCurrency;
-            r.bondAmount = t.bondAmount;
-            r.bondTime = BigInt(t.bondTime);
-            r.settleAfter = BigInt(t.settleAfter);
-            r.outcome = Number(t.outcome);
-            r.refundClaimed = t.refundClaimed;
-          });
-        }
-        if (alive) {
-          setTrades(rows);
-          if (rows.length > 0) {
-            const open = rows.find((r) => r.outcome === 0);
-            const claimable = rows.find((r) => r.outcome === 2 && !r.refundClaimed);
-            setActiveId((cur) => cur ?? (claimable ?? open ?? rows[0]).id);
-          }
-        }
-      } catch {
-        /* RPC degraded — retry next bump */
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [address, tradesVersion]);
-
-  const active = trades.find((t) => t.id === activeId) ?? null;
-
-  // ---- live preview of the active trade ----
-  const [preview, setPreview] = useState<{
-    pre: number;
-    post: number;
-    windowAvg: number;
-    reversionBps: bigint;
-    expected: number;
-  } | null>(null);
-  useEffect(() => {
-    if (!active || active.outcome !== 0) {
-      setPreview(null);
-      return;
-    }
-    let alive = true;
-    const poll = async () => {
-      try {
-        const p = (await publicClient.readContract({
-          address: HOOK,
-          abi: HOOK_ABI,
-          functionName: "previewTrade",
-          args: [active.id],
-        })) as unknown as [number, number, number, bigint, number, number, boolean];
-        if (alive) {
-          setPreview({ pre: p[0], post: p[1], windowAvg: p[2], reversionBps: p[3], expected: p[4] });
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    poll();
-    const iv = setInterval(poll, 2500);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
-  }, [active?.id, active?.outcome]);
-
-  const remaining =
-    active && chainNow > 0n && active.settleAfter > chainNow
-      ? Number(active.settleAfter - chainNow)
-      : 0;
-  const windowOpen = active !== null && active.outcome === 0 && remaining > 0;
-
-  // ---- write helpers ----
-  const refreshAll = useCallback(() => {
-    bal0.refresh();
-    bal1.refresh();
-    allowance.refresh();
-    setTradesVersion((v) => v + 1);
-  }, [bal0, bal1, allowance]);
-
-  const simulate = async (call: {
-    address: `0x${string}`;
-    abi: never;
-    functionName: string;
-    args: unknown[];
-    account: Address;
-  }) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (publicClient as any).simulateContract({ ...call, chain: null, account: call.account });
-  };
-
-  const onConnect = async () => {
-    if (!hasProvider) {
-      toast.error("No injected wallet found — install MetaMask or Rabby, then reload.");
-      return;
-    }
-    setConnBusy(true);
-    try {
-      const a = await connect();
-      if (!a) toast.error("Wallet connection rejected.");
-    } finally {
-      setConnBusy(false);
-    }
-  };
-
-  const switchNetwork = async () => {
-    const eth = getEthereum();
-    if (!eth) return;
-    try {
-      await eth.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0xaa36a7" }],
-      });
-    } catch {
-      toast.error("Switch your wallet to Sepolia (11155111) to continue.");
-    }
-  };
-
-  const onMint = async () => {
-    if (!address) return;
-    const wallet = walletClientFrom(getEthereum());
-    setBusy("mint");
-    try {
-      for (const token of [TOKEN0, TOKEN1]) {
-        await simulate({
-          address: token,
-          abi: ERC20_ABI as never,
-          functionName: "mint",
-          args: [address, MINT_SIZE],
-          account: address,
-        });
-        const h = await wallet.writeContract({
-          address: token,
-          abi: ERC20_ABI,
-          functionName: "mint",
-          args: [address, MINT_SIZE],
-          account: address,
-        });
-        await publicClient.waitForTransactionReceipt({ hash: h });
-      }
-      toast.success("Minted 100 MDA + 100 MDB (capped faucet: no blacklist, supply-capped).");
-      refreshAll();
-    } catch (e) {
-      toast.error(`Mint failed: ${revertReason(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const onApproveExact = async () => {
-    if (!address || !amountIn) return;
-    const wallet = walletClientFrom(getEthereum());
-    setBusy("approve");
-    try {
-      const exact = amountIn + bond;
-      await simulate({
-        address: sellToken,
-        abi: ERC20_ABI as never,
-        functionName: "approve",
-        args: [ROUTER, exact],
-        account: address,
-      });
-      const h = await wallet.writeContract({
-        address: sellToken,
-        abi: ERC20_ABI,
-        functionName: "approve",
-        args: [ROUTER, exact],
-        account: address,
-      });
-      await publicClient.waitForTransactionReceipt({ hash: h });
-      toast.success(`Approved exactly ${formatEther(exact)} (input + bond) — no unlimited allowances.`);
-      allowance.refresh();
-    } catch (e) {
-      toast.error(`Approve failed: ${revertReason(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const doSwapTx = async (
-    amount: bigint,
-    dir: boolean,
-    minAmountOut: bigint,
-  ): Promise<{ tradeId: `0x${string}`; hash: Hash }> => {
-    if (!address) throw new Error("connect first");
-    const wallet = walletClientFrom(getEthereum());
-    const args = [
-      POOL_KEY,
-      [dir, -amount, dir ? MIN_SQRT_PRICE : MAX_SQRT_PRICE],
-      minAmountOut,
-      BigInt(Math.floor(Date.now() / 1000) + 300),
-    ];
-    await simulate({
-      address: ROUTER,
-      abi: ROUTER_ABI as never,
-      functionName: "swap",
-      args,
-      account: address,
-    });
-    const h = await wallet.writeContract({
-      address: ROUTER,
-      abi: ROUTER_ABI,
-      functionName: "swap",
-      args: args as never,
-      account: address,
-    });
-    const rc = await publicClient.waitForTransactionReceipt({ hash: h });
-    // Deterministic trade identity: parse the SwapBonded event from THIS
-    // receipt — never a global "last trade" pointer.
-    const log = rc.logs.find(
-      (l) =>
-        l.address.toLowerCase() === HOOK.toLowerCase() &&
-        l.topics[0] === TOPICS.swapBonded,
-    );
-    if (!log) throw new Error("no SwapBonded in receipt");
-    const d = decodeEventLog({
-      abi: HOOK_ABI,
-      data: log.data,
-      topics: log.topics as never,
-    }) as unknown as { args: { tradeId: `0x${string}` } };
-    return { tradeId: d.args.tradeId, hash: h };
-  };
-
-  const onSwap = async () => {
-    if (!address || !amountIn) return;
-    if (needApprove) {
-      toast.error("Approve the exact amount first (input + bond).");
-      return;
-    }
-    if ((sellBal ?? 0n) < amountIn + bond) {
-      toast.error(`Insufficient balance: need ${formatEther(amountIn + bond)} (input + bond).`);
-      return;
-    }
-    setBusy("swap");
-    try {
-      const { tradeId, hash } = await doSwapTx(amountIn, zeroForOne, minOut);
-      setActiveId(tradeId);
-      toast.success("Swap filled at 3 bps — bond escrowed, the 24 s memory is recording.", {
-        action: { label: "tx", onClick: () => window.open(explorerTx(hash), "_blank") },
-      });
-      refreshAll();
-    } catch (e) {
-      toast.error(`Swap failed: ${revertReason(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const onSettle = async (tradeId: `0x${string}`) => {
-    if (!address) return;
-    const wallet = walletClientFrom(getEthereum());
-    setBusy("settle");
-    try {
-      await simulate({
-        address: HOOK,
-        abi: HOOK_ABI as never,
-        functionName: "settle",
-        args: [tradeId],
-        account: address,
-      });
-      const h = await wallet.writeContract({
-        address: HOOK,
-        abi: HOOK_ABI,
-        functionName: "settle",
-        args: [tradeId],
-        account: address,
-      });
-      const rc = await publicClient.waitForTransactionReceipt({ hash: h });
-      const log = rc.logs.find(
-        (l) => l.address.toLowerCase() === HOOK.toLowerCase() && l.topics[0] === TOPICS.settled,
-      );
-      let outcome = 3;
-      if (log) {
-        const d = decodeEventLog({
-          abi: HOOK_ABI,
-          data: log.data,
-          topics: log.topics as never,
-        }) as unknown as { args: { outcome: number } };
-        outcome = d.args.outcome;
-      }
-      toast.success(
-        outcome === 1
-          ? "Verdict: REFUND — bond paid to the trader at settlement."
-          : outcome === 2
-            ? "Verdict: REFUND — delivery failed; claimRefund retries."
-            : "Verdict: DONATE — bond deferred to the LP distribution bucket.",
-        { action: { label: "tx", onClick: () => window.open(explorerTx(h), "_blank") } },
-      );
-      refreshAll();
-      return outcome;
-    } catch (e) {
-      toast.error(`Settle failed: ${revertReason(e)}`);
-      return undefined;
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const onClaim = async (tradeId: `0x${string}`) => {
-    if (!address) return;
-    const wallet = walletClientFrom(getEthereum());
-    setBusy("claim");
-    try {
-      const h = await wallet.writeContract({
-        address: HOOK,
-        abi: HOOK_ABI,
-        functionName: "claimRefund",
-        args: [tradeId],
-        account: address,
-      });
-      const rc = await publicClient.waitForTransactionReceipt({ hash: h });
-      const ok = rc.logs.some(
-        (l) =>
-          l.address.toLowerCase() === HOOK.toLowerCase() &&
-          l.topics[0] === TOPICS.refundClaimed,
-      );
-      if (ok) toast.success("Bond refunded to the trader.");
-      else toast.warning("Delivery failed this time (hostile token?) — claim stays retryable.");
-      refreshAll();
-    } catch (e) {
-      toast.error(`Claim failed: ${revertReason(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const onFlush = async () => {
-    if (!address) return;
-    const wallet = walletClientFrom(getEthereum());
-    setBusy("flush");
-    try {
-      const h = await wallet.writeContract({
-        address: HOOK,
-        abi: HOOK_ABI,
-        functionName: "flushDonation",
-        args: [POOL_ID],
-        account: address,
-      });
-      await publicClient.waitForTransactionReceipt({ hash: h });
-      toast.success("Donations flushed to in-range LPs.");
-      refreshAll();
-    } catch (e) {
-      toast.error(`Flush failed: ${revertReason(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-  const waitWindow = async (settleAfter: bigint) => {
-    for (;;) {
-      if (pilotAbort.current) throw new Error("demo aborted");
-      const b = await publicClient.getBlock();
-      if (b.timestamp >= settleAfter + 1n) return;
-      await sleep(2000);
-    }
-  };
-
-  /** Deterministic demo: organic swap + 1:1 next-block reversion => Refund. */
-  const demoRefund = async () => {
-    if (!address) return;
-    pilotAbort.current = false;
-    setPilot("refund");
-    setBusy("demo");
-    try {
-      if ((sellBal ?? 0n) < DEMO_BUY * 2n) {
-        toast.error("Need ~2 MDA + 1 MDB for the demo — mint first.");
-        return;
-      }
-      const approveAll = async (token: `0x${string}`, amt: bigint) => {
-        const a = (await publicClient.readContract({
-          address: token,
-          abi: ERC20_ABI,
-          functionName: "allowance",
-          args: [address, ROUTER],
-        })) as bigint;
-        if (a < amt) {
-          const wallet = walletClientFrom(getEthereum());
-          const h = await wallet.writeContract({
-            address: token,
-            abi: ERC20_ABI,
-            functionName: "approve",
-            args: [ROUTER, amt],
-            account: address,
-          });
-          await publicClient.waitForTransactionReceipt({ hash: h });
-        }
-      };
-      await approveAll(TOKEN0, DEMO_BUY + (DEMO_BUY * BOND_BPS) / 10000n);
-      await approveAll(TOKEN1, DEMO_REVERSE + (DEMO_REVERSE * BOND_BPS) / 10000n);
-
-      toast.info("DEMO 1/5 — organic swap (1 MDA in)…");
-      const first = await doSwapTx(DEMO_BUY, true, 0n);
-      setActiveId(first.tradeId);
-
-      toast.info("DEMO 2/5 — arbitrageur fully reverses 1:1 in the next block…");
-      await sleep(1500);
-      await doSwapTx(DEMO_REVERSE, false, 0n);
-
-      toast.info("DEMO 3/5 — waiting out the fixed 24 s window…");
-      await waitWindow(BigInt(Math.floor(Date.now() / 1000)) + BigInt(SETTLEMENT_DELAY) + 2n);
-
-      toast.info("DEMO 4/5 — settling…");
-      const outcome = await onSettle(first.tradeId);
-      if (outcome === 2) {
-        toast.info("DEMO 5/5 — delivery failed in this run; claiming…");
-        await onClaim(first.tradeId);
-      } else {
-        toast.success("DEMO 5/5 — bond refunded to the trader AT SETTLEMENT.");
-      }
-    } catch (e) {
-      toast.error(`Demo aborted: ${revertReason(e)}`);
-    } finally {
-      setPilot(null);
-      setBusy(null);
-    }
-  };
-
-  /** Deterministic demo: single sustained swap => Donate + flush. */
-  const demoDonate = async () => {
-    if (!address) return;
-    pilotAbort.current = false;
-    setPilot("donate");
-    setBusy("demo");
-    try {
-      toast.info("DEMO 1/4 — single-shot swap, no reversion behind it…");
-      const first = await doSwapTx(DEMO_BUY, true, 0n);
-      setActiveId(first.tradeId);
-
-      toast.info("DEMO 2/4 — waiting out the fixed 24 s window…");
-      await waitWindow(BigInt(Math.floor(Date.now() / 1000)) + BigInt(SETTLEMENT_DELAY) + 2n);
-
-      toast.info("DEMO 3/4 — settling (expect DONATE)…");
-      await onSettle(first.tradeId);
-
-      toast.info("DEMO 4/4 — flushing the LP donation…");
-      await onFlush();
-    } catch (e) {
-      toast.error(`Demo aborted: ${revertReason(e)}`);
-    } finally {
-      setPilot(null);
-      setBusy(null);
-    }
-  };
-
-  const wrongChain = address !== undefined && chainId !== 11155111;
-
-  // ------------------------------------------------------------------
-
+function Ticker() {
   return (
     <>
-      <Toaster theme="dark" position="bottom-right" />
-      <a href="#main" className="skip-link">
-        skip to content
-      </a>
-
-      <header className="rail">
-        <div className="rail-inner">
-          <div className="wordmark">Markout</div>
-          <div className="rail-tag">hydrographic hook · canonical sepolia v4</div>
-          <div className="rail-spacer" />
-          <span className={"chip" + (rpcOk ? "" : " warn")} aria-live="polite">
-            {rpcOk ? "sepolia · live" : "rpc degraded"}
-          </span>
-          {address ? (
-            <>
-              <span className="chip" title={address}>
-                {short(address, 4)}
-              </span>
-              <button className="btn btn-ghost" onClick={() => disconnect()}>
-                disconnect
-              </button>
-            </>
-          ) : (
-            <button className="btn btn-tide" onClick={onConnect} disabled={connBusy}>
-              {connBusy ? "connecting…" : "connect wallet"}
-            </button>
-          )}
+      <div className="hatch h-6 border-b border-edge" />
+      <div className="overflow-hidden border-b border-edge bg-background">
+        <div className="flex w-max animate-marquee">
+          {[0, 1].map((copy) => (
+            <div key={copy} aria-hidden={copy === 1} className="flex shrink-0 items-center">
+              {TICKER.map((t) => (
+                <span
+                  key={t}
+                  className="flex items-center gap-2 px-5 py-1.5 font-sans text-[12px] text-ink-soft"
+                >
+                  <span className="text-[13px] leading-none text-gold animate-spinSlow">M</span>
+                  {t}
+                </span>
+              ))}
+            </div>
+          ))}
         </div>
-      </header>
-
-      <main className="wrap" id="main">
-        {/* ---------------------------------------------------- hero */}
-        <section className="hero">
-          <div>
-            <div className="hero-kicker">
-              A Uniswap v4 hook · canonical PoolManager · any router
-            </div>
-            <h1 className="hero-display">
-              The pool that pays LPs when the price <span className="stays">stays</span> — and
-              pays you back when it <em>doesn&apos;t</em>.
-            </h1>
-            <p className="hero-sub">
-              Continuation filters miss the toxic case: a single-shot arbitrage trades exactly
-              once and leaves. Markout&apos;s hook records a{" "}
-              <strong>24-second memory of every trade</strong> — if the pool&apos;s price
-              reverts, the flow was organic and the bond comes straight back; if it stays, the
-              informed move pays in-range LPs. That internalized MEV is why this pool can quote{" "}
-              <strong>tight and stay solvent</strong>.
-            </p>
-            <div className="hero-cta">
-              {!address ? (
-                <button className="btn btn-tide" onClick={onConnect} disabled={connBusy}>
-                  {connBusy ? "connecting…" : "connect wallet"}
-                </button>
-              ) : wrongChain ? (
-                <button className="btn" onClick={switchNetwork}>
-                  switch to sepolia
-                </button>
-              ) : (
-                <>
-                  <button className="btn btn-tide" onClick={onMint} disabled={busy !== null}>
-                    {busy === "mint" ? "minting…" : "get demo tokens"}
-                  </button>
-                  <button
-                    className="btn btn-demo refund"
-                    onClick={demoRefund}
-                    disabled={busy !== null}
-                  >
-                    {pilot === "refund" ? "running…" : "watch a refund happen"}
-                  </button>
-                </>
-              )}
-            </div>
-            <p className="hero-fine">
-              No partner integrations · hook-local oracle · permissionless settlement · capped
-              demo faucet
-            </p>
-          </div>
-
-          <div className="seats">
-            <div className="seat">
-              <div className="seat-role">The LP seat</div>
-              <div className="seat-line">Quote 3 bps without feeding the arber.</div>
-              <div className="seat-sub">
-                Toxic one-shot flow posts a 20 bps bond — sustained moves forfeit it to in-range
-                liquidity.
-              </div>
-            </div>
-            <div className="seat donate">
-              <div className="seat-role">The trader seat</div>
-              <div className="seat-line">Instant fill. The bond comes back.</div>
-              <div className="seat-sub">
-                Post 20 bps for 24 seconds; revert past half your own impact and it&apos;s
-                refunded — in the settlement transaction.
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ------------------------------------------------ quiet status strip */}
-        <div className="status-strip" aria-live="off">
-          <span>
-            pool <b>{price ? price.toFixed(5) : "…"}</b> MDB/MDA
-          </span>
-          <span>
-            tick <b>{liveTick !== null ? liveTick : "…"}</b>
-          </span>
-          <span>
-            returned to LPs{" "}
-            <b className="lit">
-              {traction
-                ? `${formatTokens(traction.a0 + traction.a1, 4)} · ${traction.events} flush${traction.events === 1 ? "" : "es"}`
-                : "…"}
-            </b>
-          </span>
-          <span>
-            rpc <b>{rpcOk ? `${RPC_URLS.length} endpoints` : "degraded"}</b>
-          </span>
-        </div>
-
-        {/* ---------------------------------------------------- the instrument */}
-        <section className="instrument" aria-label="Price memory tape">
-          <div className="instrument-head">
-            <div className="instrument-title">The 24-second memory</div>
-            <div className="instrument-note">
-              <span className="rec-dot" aria-hidden="true" />
-              {active ? "recording trade" : "recording pool"}
-            </div>
-          </div>
-          <div className="instrument-body">
-            <MemoryTape
-              trace={trace}
-              chainNow={chainNow}
-              pre={preview ? preview.pre : active ? active.preTick : null}
-              post={preview ? preview.post : active ? active.postTick : null}
-              windowAvg={preview ? preview.windowAvg : null}
-              bondTime={active ? active.bondTime : 0n}
-              settleAfter={active ? active.settleAfter : 0n}
-              outcome={active ? active.outcome : -1}
-            />
-          </div>
-        </section>
-
-        {/* ---------------------------------------------------- deck */}
-        <div className="deck">
-          {/* console */}
-          <section className="panel" aria-label="Swap console">
-            <div className="panel-head">
-              <div className="panel-title">Swap console</div>
-              <div className="panel-note">pool MDA/MDB · 1:1 · capped faucet</div>
-            </div>
-            <div className="panel-body">
-              {!address ? (
-                <div className="connect-call">
-                  <p>
-                    Connect an injected wallet on Sepolia. One click for tokens, one for a swap
-                    with real slippage + deadline protection — then watch the memory settle it.
-                  </p>
-                  <button className="btn btn-tide" onClick={onConnect} disabled={connBusy}>
-                    {connBusy ? "connecting…" : "connect wallet"}
-                  </button>
-                </div>
-              ) : wrongChain ? (
-                <div className="connect-call">
-                  <p className="warn">
-                    Wrong network — switch your wallet to Sepolia (11155111).
-                  </p>
-                  <button className="btn" onClick={switchNetwork}>
-                    switch to sepolia
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <div className="fieldrow">
-                    <div className="field-label">You sell</div>
-                    <input
-                      className="amount-input"
-                      value={amountStr}
-                      onChange={(e) => setAmountStr(e.target.value)}
-                      placeholder="0.0"
-                      inputMode="decimal"
-                      aria-label="amount in"
-                    />
-                    <div className="token-side">
-                      <div className="token-name">{zeroForOne ? "MDA" : "MDB"}</div>
-                      <div className="token-addr">{short(zeroForOne ? TOKEN0 : TOKEN1)}</div>
-                    </div>
-                    <div className="token-balance">
-                      <span>balance {formatTokens(sellBal ?? 0n)}</span>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={onMint}
-                        disabled={busy !== null}
-                      >
-                        +100 each
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flip">
-                    <button onClick={() => setZeroForOne((z) => !z)} aria-label="flip direction">
-                      ↕
-                    </button>
-                  </div>
-
-                  <div className="fieldrow">
-                    <div className="field-label">You buy (est.)</div>
-                    <div
-                      className="amount-input"
-                      style={{ color: estOut ? "var(--ink)" : "var(--faint)" }}
-                    >
-                      {estOut ? formatTokens(estOut, 4) : "—"}
-                    </div>
-                    <div className="token-side">
-                      <div className="token-name">{zeroForOne ? "MDB" : "MDA"}</div>
-                      <div className="token-addr">{short(zeroForOne ? TOKEN1 : TOKEN0)}</div>
-                    </div>
-                    <div className="token-balance">
-                      <span>balance {formatTokens(buyBal ?? 0n)}</span>
-                    </div>
-                  </div>
-
-                  <div className="quoteline">
-                    <div className="row">
-                      <span>min out (slippage-protected)</span>
-                      <span className="v">≥ {estOut ? formatTokens(minOut, 4) : "—"}</span>
-                    </div>
-                    <div className="row">
-                      <label htmlFor="slip" style={{ color: "inherit" }}>
-                        slippage tolerance %
-                      </label>
-                      <input
-                        id="slip"
-                        className="slip-input"
-                        value={slippagePct}
-                        onChange={(e) => setSlippagePct(e.target.value)}
-                        inputMode="decimal"
-                        aria-label="slippage tolerance percent"
-                      />
-                    </div>
-                    <div className="row">
-                      <span>bond escrowed 24 s (20 bps)</span>
-                      <span className="v amber">{amountIn ? formatTokens(bond, 6) : "—"}</span>
-                    </div>
-                    <div className="row">
-                      <span>deadline</span>
-                      <span className="v">+5 min</span>
-                    </div>
-                  </div>
-
-                  {tooSmall && (
-                    <p className="warn" style={{ marginBottom: 10 }}>
-                      Swap too small — the 20 bps bond would round to zero (SwapTooSmall).
-                    </p>
-                  )}
-
-                  <div className="action-stack">
-                    {needApprove && !tooSmall && (
-                      <button
-                        className="btn"
-                        onClick={onApproveExact}
-                        disabled={busy !== null || !amountIn}
-                      >
-                        {busy === "approve" ? "approving…" : "approve exact (input + bond)"}
-                      </button>
-                    )}
-                    <button
-                      className="btn btn-tide"
-                      onClick={onSwap}
-                      disabled={busy !== null || !amountIn || tooSmall || needApprove}
-                    >
-                      {busy === "swap" ? "signing…" : "swap + post bond"}
-                    </button>
-                    <div className="demo-row">
-                      <button
-                        className="btn btn-demo refund"
-                        onClick={demoRefund}
-                        disabled={busy !== null}
-                      >
-                        {pilot === "refund" ? "running…" : "demo: refund path"}
-                      </button>
-                      <button
-                        className="btn btn-demo donate"
-                        onClick={demoDonate}
-                        disabled={busy !== null}
-                      >
-                        {pilot === "donate" ? "running…" : "demo: donate path"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <p className="tx-note">
-                    exact approvals only · every write simulated first · refunds paid at settle ·
-                    net cost for organic flow is the 3 bps fee
-                  </p>
-                </>
-              )}
-            </div>
-          </section>
-
-          {/* trade control */}
-          <section className="panel" aria-label="Settlement">
-            <div className="panel-head">
-              <div className="panel-title">Settlement</div>
-              <div className="panel-note">
-                {active ? `trade ${short(active.id, 6)}` : "no active trade"}
-              </div>
-            </div>
-            <div className="panel-body">
-              {active ? (
-                <div aria-live="polite">
-                  <div className="countdown">
-                    <div className={"countdown-time" + (windowOpen ? "" : " ready")}>
-                      {active.outcome === 1
-                        ? "REFUNDED"
-                        : active.outcome === 2
-                          ? "CLAIMABLE"
-                          : active.outcome === 3
-                            ? "DONATED"
-                            : remaining > 0
-                              ? `${remaining}s`
-                              : "SETTLEABLE"}
-                    </div>
-                    <div className="countdown-label">
-                      {active.outcome === 0
-                        ? windowOpen
-                          ? "fixed window — price decides the bond"
-                          : "window closed — anyone may settle"
-                        : active.outcome === 2
-                          ? "refund verdict — delivery failed, claim retries"
-                          : "terminal"}
-                    </div>
-                  </div>
-
-                  {preview && active.outcome === 0 && (
-                    <div className="quoteline">
-                      <div className="row">
-                        <span>reversion of own impact</span>
-                        <span className={Number(preview.reversionBps) >= 5000 ? "v tide" : "v amber"}>
-                          {(Number(preview.reversionBps) / 100).toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="row">
-                        <span>projected verdict if settled now</span>
-                        <span className={preview.expected === 1 ? "v tide" : "v amber"}>
-                          {preview.expected === 1 ? "REFUND" : "DONATE"}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="action-stack">
-                    {active.outcome === 0 && (
-                      <button
-                        className="btn btn-tide"
-                        onClick={() => onSettle(active.id)}
-                        disabled={busy !== null || windowOpen}
-                      >
-                        {busy === "settle"
-                          ? "settling…"
-                          : windowOpen
-                            ? `wait ${remaining}s`
-                            : "settle — anyone can"}
-                      </button>
-                    )}
-                    {active.outcome === 2 && !active.refundClaimed && (
-                      <button
-                        className="btn btn-tide"
-                        onClick={() => onClaim(active.id)}
-                        disabled={busy !== null}
-                      >
-                        {busy === "claim" ? "claiming…" : "claimRefund — retry"}
-                      </button>
-                    )}
-                    {active.outcome === 3 && (
-                      <button className="btn" onClick={onFlush} disabled={busy !== null}>
-                        {busy === "flush" ? "flushing…" : "flushDonation → LPs"}
-                      </button>
-                    )}
-                    {active.outcome === 1 && (
-                      <div className="verdict-box refund">
-                        <div className="verdict-word">Refunded</div>
-                        <div className="verdict-sub">
-                          {formatTokens(active.bondAmount, 6)}{" "}
-                          {active.bondCurrency.toLowerCase() === TOKEN0.toLowerCase()
-                            ? "MDA"
-                            : "MDB"}{" "}
-                          returned to the trader
-                        </div>
-                      </div>
-                    )}
-                    <a
-                      href={explorerTx(active.txHash)}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ textAlign: "center", fontSize: 11 }}
-                    >
-                      swap tx ↗
-                    </a>
-                  </div>
-
-                  <p className="tx-note">
-                    bond {formatTokens(active.bondAmount, 6)}{" "}
-                    {active.bondCurrency.toLowerCase() === TOKEN0.toLowerCase() ? "MDA" : "MDB"}
-                  </p>
-                </div>
-              ) : (
-                <p className="empty">
-                  swap to record a trade — refresh-safe, recovered from your own receipts
-                </p>
-              )}
-            </div>
-          </section>
-        </div>
-
-        {/* ---------------------------------------------------- ledger */}
-        <section className="section" aria-label="Your bonded trades">
-          <div className="section-title">The ledger</div>
-          <div className="panel">
-            {trades.length === 0 ? (
-              <div className="empty">
-                {address
-                  ? "no SwapBonded events for this wallet in recent blocks"
-                  : "connect a wallet to load your trade history"}
-              </div>
-            ) : (
-              <table className="ledger">
-                <thead>
-                  <tr>
-                    <th>trade</th>
-                    <th>bond</th>
-                    <th>status</th>
-                    <th>actions</th>
-                    <th>tx</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {trades.map((r) => (
-                    <tr
-                      key={r.id}
-                      className={r.id === activeId ? "row-active" : ""}
-                      onClick={() => setActiveId(r.id)}
-                    >
-                      <td className="strong" data-label="trade">
-                        {short(r.id, 8)}
-                      </td>
-                      <td data-label="bond">{formatTokens(r.bondAmount, 6)}</td>
-                      <td data-label="status">
-                        {r.outcome === 1 ? (
-                          <span className="badge refund">refunded</span>
-                        ) : r.outcome === 2 ? (
-                          <span className={r.refundClaimed ? "badge" : "badge refund"}>
-                            {r.refundClaimed ? "claimed" : "refund — claim"}
-                          </span>
-                        ) : r.outcome === 3 ? (
-                          <span className="badge donate">donated</span>
-                        ) : r.outcome === 0 ? (
-                          <span className="badge">
-                            {chainNow >= r.settleAfter ? "settleable" : "window open"}
-                          </span>
-                        ) : (
-                          <span className="badge">…</span>
-                        )}
-                      </td>
-                      <td data-label="actions">
-                        {r.outcome === 0 && chainNow >= r.settleAfter && (
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSettle(r.id);
-                            }}
-                            disabled={busy !== null}
-                          >
-                            settle
-                          </button>
-                        )}
-                        {r.outcome === 2 && !r.refundClaimed && (
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onClaim(r.id);
-                            }}
-                            disabled={busy !== null}
-                          >
-                            claim
-                          </button>
-                        )}
-                      </td>
-                      <td data-label="tx">
-                        <a href={explorerTx(r.txHash)} target="_blank" rel="noreferrer">
-                          ↗
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </section>
-
-        {/* ---------------------------------------------------- colophon */}
-        <footer className="colophon" id="proofs">
-          <div>
-            <div className="row">
-              <span className="k">PoolManager</span>
-              <a href={explorerAddress(POOL_MANAGER)} target="_blank" rel="noreferrer">
-                canonical Sepolia v4 ↗
-              </a>
-            </div>
-            <div className="row">
-              <span className="k">Hook</span>
-              <a href={explorerAddress(HOOK)} target="_blank" rel="noreferrer">
-                {short(HOOK, 6)} ↗
-              </a>
-            </div>
-            <div className="row">
-              <span className="k">Router</span>
-              <a href={explorerAddress(ROUTER)} target="_blank" rel="noreferrer">
-                {short(ROUTER, 6)} ↗
-              </a>
-              <span style={{ color: "var(--faint)" }}>— convenience; any router works</span>
-            </div>
-            <div className="row">
-              <span className="k">Faucet</span>
-              <span>
-                {short(TOKEN0)} · {short(TOKEN1)} — capped, no blacklist
-              </span>
-            </div>
-          </div>
-          <div>
-            <div className="row">
-              <span className="k">Refund proof</span>
-              <a href={explorerTx(PROOFS.refundSettle)} target="_blank" rel="noreferrer">
-                refunded at settle ↗
-              </a>
-            </div>
-            <div className="row">
-              <span className="k">Donate proof</span>
-              <a href={explorerTx(PROOFS.donateSettle)} target="_blank" rel="noreferrer">
-                donated + flushed ↗
-              </a>
-            </div>
-            <div className="row">
-              <span className="k">Demo video</span>
-              <span className="hole">coming — human-owned</span>
-            </div>
-            <div className="row">
-              <span className="k">Hosted app</span>
-              <span className="hole">coming — human-owned</span>
-            </div>
-          </div>
-          <p className="colophon-note">
-            Fixed [bond, settleAfter] window: settling late interpolates the same historical
-            endpoint — verdicts never change with delay. Donations socialize to the LPs in range
-            at flush. The oracle is entirely hook-local: pool ticks plus a hook-maintained
-            accumulator. What it doesn&apos;t catch: slow trend flow, the front leg of an atomic
-            sandwich, donate-to-whoever-is-in-range. No partner integrations.
-          </p>
-        </footer>
-      </main>
+      </div>
     </>
   );
 }
 
-// ---------------------------------------------------------------------------
-// MemoryTape — the instrument. Live phosphor trace of the pool tick, the
-// trade's fixed window, pre/post/frontier lines, the window average, and
-// the verdict once terminal.
-// ---------------------------------------------------------------------------
+/* ───────────────────────── hero ───────────────────────── */
 
-function MemoryTape({
-  trace,
-  chainNow,
-  pre,
-  post,
-  windowAvg,
-  bondTime,
-  settleAfter,
-  outcome,
-}: {
-  trace: { t: number; tick: number }[];
-  chainNow: bigint;
-  pre: number | null;
-  post: number | null;
-  windowAvg: number | null;
-  bondTime: bigint;
-  settleAfter: bigint;
-  outcome: number;
-}) {
-  const W = 1120;
-  const H = 300;
-  const PAD_L = 64;
-  const PAD_R = 20;
-  const PAD_Y = 30;
-  const SPAN = 180; // seconds visible
-
-  const now = chainNow > 0n ? Number(chainNow) : null;
-  const x = (t: number) => PAD_L + ((t - (now ?? t)) / SPAN) * (W - PAD_L - PAD_R);
-
-  const ticks: number[] = trace.map((p) => p.tick);
-  if (pre !== null) ticks.push(pre);
-  if (post !== null) ticks.push(post);
-  if (windowAvg !== null) ticks.push(windowAvg);
-  const lo = ticks.length ? Math.min(...ticks) - 10 : -10;
-  const hi = ticks.length ? Math.max(...ticks) + 10 : 10;
-  const y = (tick: number) => H - PAD_Y - ((tick - lo) / (hi - lo)) * (H - 2 * PAD_Y);
-
-  const frontier = pre !== null && post !== null ? (pre + post) / 2 : null;
-
-  const poly = trace
-    .filter((p) => now === null || now - p.t <= SPAN)
-    .map((p) => `${x(p.t).toFixed(1)},${y(p.tick).toFixed(1)}`)
-    .join(" ");
-
-  const showWindow = outcome === 0 && bondTime > 0n && settleAfter > 0n && now !== null;
-  const wx1 = x(Number(bondTime));
-  const wx2 = x(Number(settleAfter));
-  const sweepX = showWindow ? Math.min(x(now!), Math.max(wx2, wx1)) : null;
-
+function Hero() {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="tape-svg" role="img" aria-label="Price memory tape">
-      {[0.25, 0.5, 0.75].map((f) => (
-        <line
-          key={f}
-          x1={PAD_L}
-          x2={W - PAD_R}
-          y1={PAD_Y + f * (H - 2 * PAD_Y)}
-          y2={PAD_Y + f * (H - 2 * PAD_Y)}
-          className="tape-gridline"
-        />
-      ))}
+    <section className="relative overflow-hidden border-b border-edge">
+      <div
+        className="pointer-events-none absolute inset-x-0 -top-24 h-80 opacity-70"
+        style={{ background: "radial-gradient(680px 280px at 68% 0%, rgba(181,39,111,0.12), transparent 70%)" }}
+      />
+      <div className="relative mx-auto grid max-w-content items-center gap-10 px-5 pb-14 pt-14 md:px-8 md:pt-20 lg:grid-cols-[1.05fr_1fr]">
+        <div className="text-center lg:text-left">
+          <Badge variant="brand" className="animate-rise">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulseSoft" />
+            Uniswap Hookathon · UHI10 · Sustainable Liquidity &amp; MEV Protection
+          </Badge>
 
-      {pre !== null && (
-        <>
-          <line x1={PAD_L} x2={W - PAD_R} y1={y(pre)} y2={y(pre)} className="tape-pre" />
-          <text x={W - PAD_R - 4} y={y(pre) - 5} className="tape-label" textAnchor="end">
-            pre {tickToPrice(pre).toFixed(5)}
-          </text>
-        </>
-      )}
-      {post !== null && (
-        <>
-          <line x1={PAD_L} x2={W - PAD_R} y1={y(post)} y2={y(post)} className="tape-post" />
-          <text x={W - PAD_R - 4} y={y(post) + 13} className="tape-label" textAnchor="end">
-            post {tickToPrice(post).toFixed(5)}
-          </text>
-        </>
-      )}
-      {frontier !== null && (
-        <>
-          <line
-            x1={PAD_L}
-            x2={W - PAD_R}
-            y1={y(frontier)}
-            y2={y(frontier)}
-            className="tape-frontier"
-          />
-          <text x={PAD_L + 6} y={y(frontier) + 13} className="tape-label tide">
-            50% reversion frontier
-          </text>
-        </>
-      )}
+          <h1 className="mt-6 animate-rise font-display text-[40px] font-semibold leading-[1.04] tracking-tightest text-ink [animation-delay:60ms] md:text-[60px] lg:text-[64px]">
+            The pool that remembers,{" "}
+            <span className="text-brand">and makes toxic flow pay.</span>
+          </h1>
 
-      {showWindow && (
-        <>
-          <rect
-            x={Math.min(wx1, W - PAD_R)}
-            y={PAD_Y - 14}
-            width={Math.max(Math.min(wx2, W - PAD_R) - Math.min(wx1, W - PAD_R), 2)}
-            height={H - 2 * PAD_Y + 28}
-            className="tape-window"
-          />
-          <text x={Math.min(wx1, W - 220) + 6} y={PAD_Y - 18} className="tape-label tide">
-            fixed window · 24 s
-          </text>
-          {sweepX !== null && sweepX > Math.min(wx1, W - PAD_R) && (
-            <line
-              x1={sweepX}
-              x2={sweepX}
-              y1={PAD_Y - 10}
-              y2={H - PAD_Y + 10}
-              className="sweep"
-            />
-          )}
-        </>
-      )}
+          <p className="mx-auto mt-6 max-w-xl animate-rise font-sans text-[16px] leading-relaxed text-ink-soft [animation-delay:120ms] lg:mx-0">
+            A Uniswap v4 hook that lets a volatile pool quote tight and stay solvent: one-shot
+            arbitrage posts a bond it forfeits to in-range liquidity, and organic flow gets it{" "}
+            <strong className="font-semibold text-brand">refunded at settlement</strong> the
+            moment the price reverts behind it.
+          </p>
 
-      {poly && <polyline points={poly} className="trace-live" />}
+          <div className="mt-8 flex animate-rise flex-wrap items-center justify-center gap-3 [animation-delay:180ms] lg:justify-start">
+            <Button asChild size="lg">
+              <Link href="/app">Launch App →</Link>
+            </Button>
+            <Button asChild size="lg" variant="outline">
+              <Link href="/docs">Read the docs</Link>
+            </Button>
+          </div>
 
-      {windowAvg !== null && (
-        <g
-          className={
-            outcome === 1 ? "tape-avg refund" : outcome === 3 ? "tape-avg donate" : "tape-avg"
-          }
-        >
-          <line x1={wx2 - 9} x2={wx2 + 9} y1={y(windowAvg)} y2={y(windowAvg)} />
-          <circle cx={wx2} cy={y(windowAvg)} r={4} />
-          <text x={wx2 + 14} y={y(windowAvg) + 4} className="tape-label">
-            window avg {tickToPrice(windowAvg).toFixed(5)}
-          </text>
-        </g>
-      )}
+          <dl className="mx-auto mt-9 grid max-w-md animate-rise grid-cols-3 divide-x divide-edge overflow-hidden rounded-lg border border-edge [animation-delay:240ms] lg:mx-0">
+            {[
+              ["3 bps", "fill fee"],
+              ["24 s", "fixed window"],
+              ["43", "tests passing"],
+            ].map(([v, k]) => (
+              <div key={k} className="bg-card px-2 py-4 text-center">
+                <dt className="font-display text-[20px] font-semibold tabular-nums tracking-tight text-ink">
+                  {v}
+                </dt>
+                <dd className="mt-1 font-sans text-[11px] leading-snug text-muted">{k}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
 
-      {trace.length > 0 && (
-        <circle
-          cx={x(trace[trace.length - 1].t)}
-          cy={y(trace[trace.length - 1].tick)}
-          r={3.5}
-          fill="var(--tide)"
-        />
-      )}
-
-      {outcome === 1 && (
-        <text x={W / 2} y={H - 8} className="tape-verdict refund" textAnchor="middle">
-          bond → trader, paid at settle
-        </text>
-      )}
-      {outcome === 3 && (
-        <text x={W / 2} y={H - 8} className="tape-verdict donate" textAnchor="middle">
-          bond → in-range LPs
-        </text>
-      )}
-      {outcome === 2 && (
-        <text x={W / 2} y={H - 8} className="tape-verdict refund" textAnchor="middle">
-          refund pending — retry claim
-        </text>
-      )}
-    </svg>
+        <div className="hidden animate-rise [animation-delay:300ms] lg:block">
+          <HeroVisual />
+        </div>
+      </div>
+    </section>
   );
+}
+
+/* ───────────────────────── how it works ───────────────────────── */
+
+function HowItWorks() {
+  const steps = [
+    {
+      n: "①",
+      place: "The swap",
+      title: "Bond posted",
+      body: "Swaps fill instantly at 3 bps. The hook charges a 20 bps input bond straight onto the swap caller's own PoolManager delta — any router that can settle a normal v4 swap pays it, no Markout-specific step.",
+      badge: "Any router · canonical PM",
+      kind: "brand" as const,
+      mini: <SwapMini />,
+    },
+    {
+      n: "②",
+      place: "The window",
+      title: "24-second memory",
+      body: "A hook-local previous-tick accumulator records the pool's memory over an immutable [bond, settleAfter] window. Settling late interpolates the same endpoint — verdicts never change with timing, and nothing can freeze escrow.",
+      badge: "Append-only history",
+      kind: "brand" as const,
+      mini: <MemoryMini />,
+    },
+    {
+      n: "③",
+      place: "The verdict",
+      title: "Refund or Donate",
+      body: "Revert past half your own impact and the bond is refunded in the settlement transaction. Sustain, and it's forfeited to in-range LPs — flushed permissionlessly whenever liquidity exists. One claim path exists, only for failed delivery.",
+      badge: "Refund paid at settle",
+      kind: "gold" as const,
+      mini: <VerdictMini />,
+    },
+  ];
+  return (
+    <section id="how" className="border-b border-edge">
+      <div className="mx-auto max-w-content px-5 py-14 md:px-8">
+        <Eyebrow>How it works</Eyebrow>
+        <h2 className="mt-3 max-w-2xl font-display text-[28px] font-semibold tracking-tight text-ink md:text-[38px]">
+          Bond, memory, verdict.
+        </h2>
+
+        <div className="mt-10 grid gap-4 md:grid-cols-3">
+          {steps.map((s) => (
+            <Card key={s.place} className="flex flex-col">
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-3">
+                  <span className="font-display text-[26px] text-gold">{s.n}</span>
+                  <span className="font-sans text-[11px] font-bold uppercase tracking-[0.18em] text-muted">
+                    {s.place}
+                  </span>
+                </div>
+                <CardTitle className="pt-1 text-[20px]">{s.title}</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col">
+                <p className="note flex-1">{s.body}</p>
+                <div className="mt-4">{s.mini}</div>
+                <Badge variant={s.kind} className="mt-4 w-fit">
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${s.kind === "brand" ? "bg-brand animate-pulseSoft" : "bg-gold"}`}
+                  />
+                  {s.badge}
+                </Badge>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SwapMini() {
+  return (
+    <div className="overflow-hidden rounded-md border border-edge bg-secondary/40 font-mono text-[11px] leading-snug text-ink-soft">
+      <div className="flex items-center gap-2 border-b border-edge/40 bg-background/60 px-3 py-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulseSoft" />
+        <span className="font-sans text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
+          afterSwap · hook delta
+        </span>
+      </div>
+      <pre className="overflow-hidden px-3 py-2.5 text-[11px]">
+        <span className="text-brand">bond</span> <span className="text-faint">=</span>{" "}
+        <span className="text-ink">amountIn × 20 bps</span>
+        {"\n→ charged to the swap caller"}
+        {"\n→ escrowed by the hook"}
+      </pre>
+    </div>
+  );
+}
+
+function MemoryMini() {
+  return (
+    <div className="overflow-hidden rounded-md border border-edge bg-secondary/40">
+      <div className="flex items-center gap-2 border-b border-edge/40 bg-background/60 px-3 py-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulseSoft" />
+        <span className="font-sans text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
+          fixed window · ticks
+        </span>
+      </div>
+      <div className="px-3 py-3">
+        <div className="relative h-5">
+          <div className="absolute left-[10%] right-[10%] top-1/2 h-px -translate-y-1/2 bg-edge/30" />
+          <span className="absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand shadow-[0_0_0_3px_rgba(181,39,111,0.18)] animate-flowX" />
+          <div className="relative flex h-full items-center justify-between">
+            {["bond", "now", "settleAfter"].map((n) => (
+              <span
+                key={n}
+                className="rounded-full border border-edge bg-card px-1.5 py-0.5 font-mono text-[9.5px] text-ink"
+              >
+                {n}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="mt-2 font-mono text-[11px] text-ink-soft">
+          avg tick <span className="text-brand">immutable</span>
+          <span className="text-faint"> · </span>
+          <span className="tabular-nums">T = 24 s</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VerdictMini() {
+  return (
+    <div className="overflow-hidden rounded-md border border-edge bg-secondary/40 font-mono text-[11px] leading-snug">
+      <div className="flex items-center gap-2 border-b border-edge/40 bg-background/60 px-3 py-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-gold" />
+        <span className="font-sans text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
+          settle · permissionless
+        </span>
+      </div>
+      <pre className="overflow-hidden px-3 py-2.5 text-[11px] text-ink-soft">
+        reverted ≥ 50% <span className="text-faint">→</span> <span className="text-brand">REFUND</span>
+        {"\nsustained       "}
+        <span className="text-faint">→</span> <span className="text-gold">DONATE → LPs</span>
+      </pre>
+    </div>
+  );
+}
+
+/* ───────────────────────── comparison ledgers ───────────────────────── */
+
+function Comparison() {
+  return (
+    <section className="border-b border-edge">
+      <div className="mx-auto max-w-content px-5 py-14 md:px-8">
+        <Eyebrow>The trade-off</Eyebrow>
+        <h2 className="mt-3 max-w-2xl font-display text-[28px] font-semibold tracking-tight text-ink md:text-[38px]">
+          Vanilla AMM vs Markout LP.
+        </h2>
+        <p className="mt-4 max-w-2xl prose-doc">
+          A volatile pool either charges enough fee to cover toxic flow, or it bleeds. Markout
+          makes the toxic flow itself pay, so the advertised fee can stay tight.
+        </p>
+
+        <div className="mt-10 grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-[13px] font-semibold text-muted">
+                <span className="h-2 w-2 rounded-full bg-rose" /> Vanilla AMM LP
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Ledger
+                rows={[
+                  ["Advertised fee", "high, to cover toxicity", "text-ink"],
+                  ["Single-shot arb", "extracted, free", "text-rose"],
+                  ["Organic flow", "pays the high fee too", "text-rose"],
+                ]}
+                foot={["Net", "tight quotes impossible", "text-rose"]}
+              />
+            </CardContent>
+          </Card>
+          <Card className="bg-secondary/40">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-[13px] font-semibold text-brand">
+                <Seal size={20} /> Markout LP
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Ledger
+                rows={[
+                  ["Advertised fee", "3 bps", "text-ink"],
+                  ["Single-shot arb", "20 bps bond → LPs", "text-brand"],
+                  ["Organic flow", "bond refunded at settle", "text-brand"],
+                ]}
+                foot={["Net", "tight quotes, toxic flow pays", "text-brand"]}
+              />
+            </CardContent>
+          </Card>
+        </div>
+        <p className="mt-4 font-sans text-[12px] text-faint">
+          3 / 20 bps and the 24 s window are demo constants, each a one-line change in the hook.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function Ledger({
+  rows,
+  foot,
+}: {
+  rows: [string, string, string][];
+  foot: [string, string, string];
+}) {
+  return (
+    <div>
+      {rows.map(([k, v, c]) => (
+        <div
+          key={k}
+          className="flex items-baseline justify-between border-b border-dashed border-line py-2.5"
+        >
+          <span className="font-sans text-[13.5px] text-muted">{k}</span>
+          <span className={`font-mono text-[14px] tabular-nums ${c}`}>{v}</span>
+        </div>
+      ))}
+      <Separator className="my-3 bg-line" />
+      <div className="flex items-baseline justify-between">
+        <span className="font-sans text-[13.5px] font-semibold text-ink">{foot[0]}</span>
+        <span className={`font-mono text-[16px] font-semibold tabular-nums ${foot[2]}`}>
+          {foot[1]}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────── full-bleed ink: the differentiator ─────────────── */
+
+function InkBand() {
+  const points: [string, string][] = [
+    [
+      "Canonical, not private",
+      "Deployed against the shared canonical Sepolia PoolManager — a standard v4 hook, not a vanity deployment.",
+    ],
+    [
+      "Any router, no allowlist",
+      "The bond rides the swap caller's own delta. Universal Router, your contract, v4's own test routers — all pay it unchanged.",
+    ],
+    [
+      "MEV internalized on-chain",
+      "Toxic flow pays LPs inside the pool, with no off-chain component, no private orderflow, and no keepers required for correctness.",
+    ],
+    [
+      "No partner integrations",
+      "The oracle is entirely hook-local: pool ticks plus the hook's own accumulator. No Chainlink, no Pyth, nothing external.",
+    ],
+  ];
+  return (
+    <section className="border-b border-edge bg-foreground text-background">
+      <div className="mx-auto max-w-content px-5 py-16 md:px-8">
+        <span className="font-sans text-[11px] font-bold uppercase tracking-[0.22em] text-gold-bright">
+          The differentiator
+        </span>
+        <h2 className="mt-3 max-w-2xl font-display text-[28px] font-semibold tracking-tight text-background md:text-[40px]">
+          Toxic flow pays the LPs. On the canonical pool.
+        </h2>
+        <p className="mt-4 max-w-2xl font-sans text-[15.5px] leading-relaxed text-background/75">
+          Directional fees in{" "}
+          <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[13.5px] text-gold-bright">
+            beforeSwap
+          </code>{" "}
+          are common. Markout internalizes the MEV itself: the informed move forfeits its bond
+          into the pool it tried to exploit, on the same shared infrastructure every v4 pool
+          uses.
+        </p>
+
+        <div className="mt-10 grid gap-4 sm:grid-cols-2">
+          {points.map(([t, b]) => (
+            <Card key={t} className="border-white/15 bg-white/[0.04]">
+              <CardContent className="p-6">
+                <div className="font-sans text-[15px] font-semibold text-background">{t}</div>
+                <p className="mt-1.5 font-sans text-[13px] leading-relaxed text-background/65">
+                  {b}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ───────────────────────── live on testnet ───────────────────────── */
+
+const DEPLOYS: { name: string; chain: string; addr: string; href: string }[] = [
+  {
+    name: "MarkoutHook",
+    chain: "Sepolia · canonical PM",
+    addr: HOOK,
+    href: `https://sepolia.etherscan.io/address/${HOOK.toLowerCase()}`,
+  },
+  {
+    name: "MarkoutRouter",
+    chain: "Sepolia · convenience",
+    addr: ROUTER,
+    href: `https://sepolia.etherscan.io/address/${ROUTER.toLowerCase()}`,
+  },
+  {
+    name: "PoolManager",
+    chain: "Sepolia · canonical, shared",
+    addr: POOL_MANAGER,
+    href: `https://sepolia.etherscan.io/address/${POOL_MANAGER.toLowerCase()}`,
+  },
+  {
+    name: "Faucet MDA",
+    chain: "Sepolia · capped (MDB sibling)",
+    addr: TOKEN0,
+    href: `https://sepolia.etherscan.io/address/${TOKEN0.toLowerCase()}`,
+  },
+];
+
+function LiveOnTestnet() {
+  return (
+    <section id="live" className="border-b border-edge">
+      <div className="mx-auto max-w-content px-5 py-14 md:px-8">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <Eyebrow>Live on testnet</Eyebrow>
+            <h2 className="mt-3 font-display text-[28px] font-semibold tracking-tight text-ink md:text-[36px]">
+              Deployed, and verifiable on-chain.
+            </h2>
+          </div>
+          <Badge variant="brand">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulseSoft" />
+            Sepolia · source-verified
+          </Badge>
+        </div>
+
+        <Card className="mt-8 overflow-hidden">
+          <div className="grid divide-y divide-edge sm:grid-cols-2 sm:divide-x">
+            {DEPLOYS.map((d) => (
+              <a
+                key={d.name}
+                href={d.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center justify-between gap-4 p-5 transition-colors hover:bg-secondary/50"
+              >
+                <span>
+                  <span className="block font-sans text-[14px] font-semibold text-ink">
+                    {d.name}
+                  </span>
+                  <span className="block font-sans text-[11.5px] text-faint">{d.chain}</span>
+                </span>
+                <span className="addr">{short(d.addr)}</span>
+              </a>
+            ))}
+          </div>
+          <div className="border-t border-edge px-5 py-3 font-sans text-[12px] text-muted">
+            Fresh proof pack: a 1:1 next-block reversion{" "}
+            <a
+              className="text-brand underline-offset-2 hover:underline"
+              href="https://sepolia.etherscan.io/tx/0xda16e75a54e340692774f1405158a5870737b6e33df6400835db1fa6600ddc49"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              refunded at settlement ↗
+            </a>{" "}
+            and the reversal trade{" "}
+            <a
+              className="text-brand underline-offset-2 hover:underline"
+              href="https://sepolia.etherscan.io/tx/0xbda1222053c34f4b281082df0b139c04668d8fe8f15238d490d288bc277bfe66"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              donated + flushed ↗
+            </a>
+            .
+          </div>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+function short(addr: string) {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+/* ───────────────────────── final CTA ───────────────────────── */
+
+function FinalCta() {
+  return (
+    <section className="border-b border-edge">
+      <div className="mx-auto max-w-content px-5 py-16 text-center md:px-8">
+        <h2 className="font-display text-[28px] font-semibold tracking-tight text-ink md:text-[36px]">
+          Post a bond. Watch the memory decide.
+        </h2>
+        <p className="mx-auto mt-3 max-w-xl font-sans text-[15px] leading-relaxed text-muted">
+          Mint capped demo tokens, swap through any router you like, and settle the verdict
+          yourself — the runbook is four commands.
+        </p>
+        <div className="mt-7 flex justify-center gap-3">
+          <Button asChild size="lg">
+            <Link href="/app">Launch App →</Link>
+          </Button>
+          <Button asChild size="lg" variant="outline">
+            <Link href="/docs">Read the docs</Link>
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return <span className="eyebrow">{children}</span>;
 }
