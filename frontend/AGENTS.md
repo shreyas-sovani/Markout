@@ -22,6 +22,12 @@ Working: `next build` passes (`/` 130 kB, `/app` 244 kB, `/docs` 130 kB first lo
 
 ## Decision Log
 
+### 2026-08-27 — GitHub remote renamed to Markout
+- **Change**: footer GitHub link now `https://github.com/shreyas-sovani/Markout`. Local `origin` points at the same URL. Hackathon badge still says UHI10 (event name, not the repo).
+- **Reasoning**: the public repo was renamed; in-app clone/source links have to match or they 404.
+- **Rejected alternative(s)**: rewriting every "UHI10" string (that's the Hookathon track id on the landing badge and colophon).
+- **Task/session**: repo rename, 2026-08-27.
+
 ### 2026-08-27 — cream-paper multi-page shell
 - **Change**: the hydrographic dark one-pager was replaced with Markout's light editorial product: tailwind.config.ts / postcss / components.json / globals.css / lib/utils.ts / ui primitives (button, card, badge, separator, sheet); Brand (magenta "M" seal), SiteNav, SiteFooter, Connect + NetworkBanner on `lib/wallet.ts` (no wagmi), Pipeline (Connect→Mint→Swap→Settle), HeroVisual (paper collage: bonded swap / memory tape / verdict route), MemoryTape (the 24 s tape on cream paper: ink dashed pre, ink post, gold frontier, magenta trace + window shade + sweep, verdict captions). The god-page was split into `lib/markout.tsx` (MarkoutProvider: all polls, recovery, previews, actions, demos) + three routes. Facts ticker, `.tape` headers, ledger table with outcome badges, and docs Formula/Callout/Step chrome.
 - **Reasoning**: the product should read as a light venue, not a dark instrument; keep tx wiring intact (exact approvals, simulate-first, receipt-parsed tradeId, chunked getLogs, chain-time countdown) while splitting routes so landing / console / docs stay in sync.

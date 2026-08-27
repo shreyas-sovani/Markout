@@ -30,7 +30,7 @@ export function SiteFooter() {
             items={[
               ["App", "/app"],
               ["Docs", "/docs"],
-              ["GitHub", "https://github.com/shreyas-sovani/UHI10"],
+              ["GitHub", "https://github.com/shreyas-sovani/Markout"],
             ]}
           />
           <FooterCol
