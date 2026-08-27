@@ -1,6 +1,6 @@
 # Markout — Live Demo Runbook
 
-Everything needed to run the demo end-to-end against the canonical Sepolia v4 deployment, verify each step, and fix the known traps. All commands are copy-pasteable on the current ABI.
+The pool that pays LPs when the price stays — and pays traders back when it doesn't. Everything below runs the demo end-to-end against the canonical Sepolia v4 deployment, verifies each step, and fixes the known traps. All commands are copy-pasteable on the current ABI.
 
 ## Prerequisites
 

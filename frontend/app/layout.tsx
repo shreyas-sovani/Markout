@@ -1,25 +1,33 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono } from "next/font/google";
+import { Fraunces, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-const mono = JetBrains_Mono({
+const display = Fraunces({
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  weight: ["400", "500", "600"],
+  style: ["normal", "italic"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const mono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
   variable: "--font-mono",
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Markout — MEV protection by mean reversion",
+  title: "Markout — the pool that remembers",
   description:
-    "Uniswap v4 hook: swaps fill at 3 bps while a 20 bps bond is escrowed for 21 s. Price reverts → bond refunded. Price sustains → bond donated to LPs. Live on Sepolia.",
+    "A Uniswap v4 hook on the canonical Sepolia PoolManager: toxic one-shot flow pays LPs, organic flow gets its bond back when price reverts. Any router. No partner integrations.",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={mono.variable}>
+    <html lang="en" className={`${display.variable} ${mono.variable}`}>
       <body>{children}</body>
     </html>
   );

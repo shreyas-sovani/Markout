@@ -51,6 +51,8 @@ const SWAP_BONDED_EVENT = parseAbiItem(
 const MINT_SIZE = 100n * 10n ** 18n;
 const DEMO_BUY = 1n * 10n ** 18n;
 const DEMO_REVERSE = 1n * 10n ** 18n; // 1:1 next-block reversion — enough at T=24
+const DONATION_FLUSHED_TOPIC =
+  "0x5bc93a443713f36a3668bdfb5ef37b3b5ee9d5dbd41b87e4912964705ac3cc66";
 
 function short(addr: string, n = 4): string {
   return `${addr.slice(0, 2 + n)}…${addr.slice(-n)}`;
@@ -86,6 +88,9 @@ export default function Page() {
   const [chainNow, setChainNow] = useState<bigint>(0n);
   const [rpcOk, setRpcOk] = useState(true);
 
+  // rolling tick trace for the instrument's live phosphor line
+  const [trace, setTrace] = useState<{ t: number; tick: number }[]>([]);
+  const traceRef = useRef<{ t: number; tick: number }[]>([]);
   useEffect(() => {
     let alive = true;
     const poll = async () => {
@@ -134,6 +139,57 @@ export default function Page() {
       clearInterval(iv);
     };
   }, []);
+
+  // record a trace point whenever a fresh chain time + tick are both in hand
+  useEffect(() => {
+    if (liveTick === null || chainNow === 0n) return;
+    const t = Number(chainNow);
+    const arr = traceRef.current;
+    const last = arr[arr.length - 1];
+    if (!last || last.t < t) {
+      arr.push({ t, tick: liveTick });
+      if (arr.length > 360) arr.shift();
+      setTrace([...arr]);
+    }
+  }, [liveTick, chainNow]);
+
+  // ---- traction: cumulative bond value flushed to LPs (quiet strip) ----
+  const [traction, setTraction] = useState<{ events: number; a0: bigint; a1: bigint } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const head = await publicClient.getBlockNumber();
+        const from = head > 150000n ? head - 150000n : 1n;
+        let events = 0;
+        let a0 = 0n;
+        let a1 = 0n;
+        for (let f = from; f <= head; f += 49000n) {
+          const to = f + 48999n > head ? head : f + 48999n;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const logs = await (publicClient as any).getLogs({
+            address: HOOK,
+            topics: [DONATION_FLUSHED_TOPIC],
+            fromBlock: f,
+            toBlock: to,
+          });
+          for (const l of logs) {
+            const d = l.data.slice(2);
+            a0 += BigInt("0x" + d.slice(0, 64));
+            a1 += BigInt("0x" + d.slice(64, 128));
+            events += 1;
+          }
+          if (to >= head) break;
+        }
+        if (alive) setTraction({ events, a0, a1 });
+      } catch {
+        /* strip stays quiet on RPC failure */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [tradesVersion]);
 
   // ---- balances + allowance ----
   const sellToken = zeroForOne ? TOKEN0 : TOKEN1;
@@ -278,10 +334,9 @@ export default function Page() {
         }
         if (alive) {
           setTrades(rows);
-          // Recovery: auto-focus the most interesting unfinished trade.
           if (rows.length > 0) {
             const open = rows.find((r) => r.outcome === 0);
-            const claimable = rows.find((r) => r.outcome === 1 && !r.refundClaimed);
+            const claimable = rows.find((r) => r.outcome === 2 && !r.refundClaimed);
             setActiveId((cur) => cur ?? (claimable ?? open ?? rows[0]).id);
           }
         }
@@ -296,7 +351,7 @@ export default function Page() {
 
   const active = trades.find((t) => t.id === activeId) ?? null;
 
-  // ---- live preview of the active trade (tape data) ----
+  // ---- live preview of the active trade ----
   const [preview, setPreview] = useState<{
     pre: number;
     post: number;
@@ -339,7 +394,7 @@ export default function Page() {
       : 0;
   const windowOpen = active !== null && active.outcome === 0 && remaining > 0;
 
-  // ---- write helpers: simulate first, then send, parse deterministic receipts ----
+  // ---- write helpers ----
   const refreshAll = useCallback(() => {
     bal0.refresh();
     bal1.refresh();
@@ -354,8 +409,6 @@ export default function Page() {
     args: unknown[];
     account: Address;
   }) => {
-    // eth_call via publicClient.simulateContract — surfaces revert reasons
-    // before anything is signed.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (publicClient as any).simulateContract({ ...call, chain: null, account: call.account });
   };
@@ -506,7 +559,7 @@ export default function Page() {
     try {
       const { tradeId, hash } = await doSwapTx(amountIn, zeroForOne, minOut);
       setActiveId(tradeId);
-      toast.success("Swap filled at 3 bps — bond escrowed, 21 s window running.", {
+      toast.success("Swap filled at 3 bps — bond escrowed, the 24 s memory is recording.", {
         action: { label: "tx", onClick: () => window.open(explorerTx(hash), "_blank") },
       });
       refreshAll();
@@ -540,7 +593,7 @@ export default function Page() {
       const log = rc.logs.find(
         (l) => l.address.toLowerCase() === HOOK.toLowerCase() && l.topics[0] === TOPICS.settled,
       );
-      let outcome = 2;
+      let outcome = 3;
       if (log) {
         const d = decodeEventLog({
           abi: HOOK_ABI,
@@ -628,7 +681,7 @@ export default function Page() {
     }
   };
 
-  /** Deterministic demo: organic swap + overshoot reversion => Refund. */
+  /** Deterministic demo: organic swap + 1:1 next-block reversion => Refund. */
   const demoRefund = async () => {
     if (!address) return;
     pilotAbort.current = false;
@@ -636,10 +689,9 @@ export default function Page() {
     setBusy("demo");
     try {
       if ((sellBal ?? 0n) < DEMO_BUY * 2n) {
-        toast.error("Need ~2 MDA + 2.2 MDB for the demo — mint first.");
+        toast.error("Need ~2 MDA + 1 MDB for the demo — mint first.");
         return;
       }
-      // fund both directions
       const approveAll = async (token: `0x${string}`, amt: bigint) => {
         const a = (await publicClient.readContract({
           address: token,
@@ -667,6 +719,7 @@ export default function Page() {
       setActiveId(first.tradeId);
 
       toast.info("DEMO 2/5 — arbitrageur fully reverses 1:1 in the next block…");
+      await sleep(1500);
       await doSwapTx(DEMO_REVERSE, false, 0n);
 
       toast.info("DEMO 3/5 — waiting out the fixed 24 s window…");
@@ -726,19 +779,17 @@ export default function Page() {
         skip to content
       </a>
 
-      <header className="top">
-        <div className="top-inner">
-          <div className="wordmark">
-            MARKOUT<span className="tick">▪</span>
-          </div>
-          <div className="top-tag">MEV protection by mean reversion</div>
-          <div className="top-spacer" />
-          <span className={"chain-chip" + (rpcOk ? "" : " warn-chip")} aria-live="polite">
-            {rpcOk ? "SEPOLIA · LIVE" : "RPC DEGRADED"}
+      <header className="rail">
+        <div className="rail-inner">
+          <div className="wordmark">Markout</div>
+          <div className="rail-tag">hydrographic hook · canonical sepolia v4</div>
+          <div className="rail-spacer" />
+          <span className={"chip" + (rpcOk ? "" : " warn")} aria-live="polite">
+            {rpcOk ? "sepolia · live" : "rpc degraded"}
           </span>
           {address ? (
             <>
-              <span className="chain-chip" title={address}>
+              <span className="chip" title={address}>
                 {short(address, 4)}
               </span>
               <button className="btn btn-ghost" onClick={() => disconnect()}>
@@ -746,7 +797,7 @@ export default function Page() {
               </button>
             </>
           ) : (
-            <button className="btn btn-primary" onClick={onConnect} disabled={connBusy}>
+            <button className="btn btn-tide" onClick={onConnect} disabled={connBusy}>
               {connBusy ? "connecting…" : "connect wallet"}
             </button>
           )}
@@ -756,86 +807,148 @@ export default function Page() {
       <main className="wrap" id="main">
         {/* ---------------------------------------------------- hero */}
         <section className="hero">
-          <div className="kicker">
-            Uniswap v4 hook · canonical Sepolia PoolManager · sustainable liquidity &amp; MEV
-            protection
+          <div>
+            <div className="hero-kicker">
+              A Uniswap v4 hook · canonical PoolManager · any router
+            </div>
+            <h1 className="hero-display">
+              The pool that pays LPs when the price <span className="stays">stays</span> — and
+              pays you back when it <em>doesn&apos;t</em>.
+            </h1>
+            <p className="hero-sub">
+              Continuation filters miss the toxic case: a single-shot arbitrage trades exactly
+              once and leaves. Markout&apos;s hook records a{" "}
+              <strong>24-second memory of every trade</strong> — if the pool&apos;s price
+              reverts, the flow was organic and the bond comes straight back; if it stays, the
+              informed move pays in-range LPs. That internalized MEV is why this pool can quote{" "}
+              <strong>tight and stay solvent</strong>.
+            </p>
+            <div className="hero-cta">
+              {!address ? (
+                <button className="btn btn-tide" onClick={onConnect} disabled={connBusy}>
+                  {connBusy ? "connecting…" : "connect wallet"}
+                </button>
+              ) : wrongChain ? (
+                <button className="btn" onClick={switchNetwork}>
+                  switch to sepolia
+                </button>
+              ) : (
+                <>
+                  <button className="btn btn-tide" onClick={onMint} disabled={busy !== null}>
+                    {busy === "mint" ? "minting…" : "get demo tokens"}
+                  </button>
+                  <button
+                    className="btn btn-demo refund"
+                    onClick={demoRefund}
+                    disabled={busy !== null}
+                  >
+                    {pilot === "refund" ? "running…" : "watch a refund happen"}
+                  </button>
+                </>
+              )}
+            </div>
+            <p className="hero-fine">
+              No partner integrations · hook-local oracle · permissionless settlement · capped
+              demo faucet
+            </p>
           </div>
-          <h1>
-            Continuation-flow MEV filters miss single-shot arbitrage. Markout judges a trade by
-            whether its price <span className="stays">stays</span>.
-          </h1>
-          <p className="hero-sub">
-            Swaps fill <strong>immediately at 3 bps</strong> while a <strong>20 bps bond</strong> is
-            escrowed over an <strong>immutable 21 s window</strong>. The normalized reversion oracle
-            refunds when at least <strong>half the trade&apos;s own price impact</strong> reverted
-            (organic flow) and donates the bond to in-range LPs when it sustained (informed flow).
-            Settlement is permissionless, verdicts are final, and settling late cannot change them —
-            the window endpoint is interpolated from history.
-          </p>
 
-          <div className="band">
-            <div className="band-cell">
-              <div className="band-value">3<span className="unit">bps</span></div>
-              <div className="band-label">fill fee</div>
+          <div className="seats">
+            <div className="seat">
+              <div className="seat-role">The LP seat</div>
+              <div className="seat-line">Quote 3 bps without feeding the arber.</div>
+              <div className="seat-sub">
+                Toxic one-shot flow posts a 20 bps bond — sustained moves forfeit it to in-range
+                liquidity.
+              </div>
             </div>
-            <div className="band-cell">
-              <div className="band-value">20<span className="unit">bps</span></div>
-              <div className="band-label">bond escrow</div>
-            </div>
-            <div className="band-cell">
-              <div className="band-value">50<span className="unit">%</span></div>
-              <div className="band-label">reversion frontier</div>
-            </div>
-            <div className="band-cell">
-              <div className="band-value">24<span className="unit">s</span></div>
-              <div className="band-label">fixed window</div>
-            </div>
-            <div className="band-cell">
-              <div className="band-value">43<span className="unit">/43</span></div>
-              <div className="band-label">forge tests</div>
-            </div>
-            <div className="band-cell">
-              <div className="band-value">2<span className="unit">tx</span></div>
-              <div className="band-label">
-                <a href="#proofs">live proofs ↗</a>
+            <div className="seat donate">
+              <div className="seat-role">The trader seat</div>
+              <div className="seat-line">Instant fill. The bond comes back.</div>
+              <div className="seat-sub">
+                Post 20 bps for 24 seconds; revert past half your own impact and it&apos;s
+                refunded — in the settlement transaction.
               </div>
             </div>
           </div>
         </section>
 
-        {/* ---------------------------------------------------- main grid */}
-        <div className="grid">
-          {/* ------------------------------------------- swap console */}
-          <section className="card" aria-label="Swap console">
-            <div className="card-head">
-              <div className="card-title">Swap console</div>
-              <div className="card-note">
-                pool MDA/MDB · 1:1 · capped faucet tokens
-              </div>
+        {/* ------------------------------------------------ quiet status strip */}
+        <div className="status-strip" aria-live="off">
+          <span>
+            pool <b>{price ? price.toFixed(5) : "…"}</b> MDB/MDA
+          </span>
+          <span>
+            tick <b>{liveTick !== null ? liveTick : "…"}</b>
+          </span>
+          <span>
+            returned to LPs{" "}
+            <b className="lit">
+              {traction
+                ? `${formatTokens(traction.a0 + traction.a1, 4)} · ${traction.events} flush${traction.events === 1 ? "" : "es"}`
+                : "…"}
+            </b>
+          </span>
+          <span>
+            rpc <b>{rpcOk ? `${RPC_URLS.length} endpoints` : "degraded"}</b>
+          </span>
+        </div>
+
+        {/* ---------------------------------------------------- the instrument */}
+        <section className="instrument" aria-label="Price memory tape">
+          <div className="instrument-head">
+            <div className="instrument-title">The 24-second memory</div>
+            <div className="instrument-note">
+              <span className="rec-dot" aria-hidden="true" />
+              {active ? "recording trade" : "recording pool"}
             </div>
-            <div className="card-body">
+          </div>
+          <div className="instrument-body">
+            <MemoryTape
+              trace={trace}
+              chainNow={chainNow}
+              pre={preview ? preview.pre : active ? active.preTick : null}
+              post={preview ? preview.post : active ? active.postTick : null}
+              windowAvg={preview ? preview.windowAvg : null}
+              bondTime={active ? active.bondTime : 0n}
+              settleAfter={active ? active.settleAfter : 0n}
+              outcome={active ? active.outcome : -1}
+            />
+          </div>
+        </section>
+
+        {/* ---------------------------------------------------- deck */}
+        <div className="deck">
+          {/* console */}
+          <section className="panel" aria-label="Swap console">
+            <div className="panel-head">
+              <div className="panel-title">Swap console</div>
+              <div className="panel-note">pool MDA/MDB · 1:1 · capped faucet</div>
+            </div>
+            <div className="panel-body">
               {!address ? (
                 <div className="connect-call">
                   <p>
-                    Connect an injected wallet (MetaMask, Rabby, Brave) on Sepolia. One-click token
-                    mint, swap with slippage + deadline protection, a 21 s countdown, settlement,
-                    and the REFUND / DONATE verdict.
+                    Connect an injected wallet on Sepolia. One click for tokens, one for a swap
+                    with real slippage + deadline protection — then watch the memory settle it.
                   </p>
-                  <button className="btn btn-primary" onClick={onConnect} disabled={connBusy}>
+                  <button className="btn btn-tide" onClick={onConnect} disabled={connBusy}>
                     {connBusy ? "connecting…" : "connect wallet"}
                   </button>
                 </div>
               ) : wrongChain ? (
                 <div className="connect-call">
-                  <p className="warn">Wrong network — switch your wallet to Sepolia (11155111).</p>
+                  <p className="warn">
+                    Wrong network — switch your wallet to Sepolia (11155111).
+                  </p>
                   <button className="btn" onClick={switchNetwork}>
                     switch to sepolia
                   </button>
                 </div>
               ) : (
                 <>
-                  <div className="tokenrow">
-                    <div className="token-label">You sell</div>
+                  <div className="fieldrow">
+                    <div className="field-label">You sell</div>
                     <input
                       className="amount-input"
                       value={amountStr}
@@ -861,19 +974,16 @@ export default function Page() {
                   </div>
 
                   <div className="flip">
-                    <button
-                      onClick={() => setZeroForOne((z) => !z)}
-                      aria-label="flip direction"
-                    >
+                    <button onClick={() => setZeroForOne((z) => !z)} aria-label="flip direction">
                       ↕
                     </button>
                   </div>
 
-                  <div className="tokenrow">
-                    <div className="token-label">You buy (est.)</div>
+                  <div className="fieldrow">
+                    <div className="field-label">You buy (est.)</div>
                     <div
                       className="amount-input"
-                      style={{ color: estOut ? "var(--text)" : "var(--faint)" }}
+                      style={{ color: estOut ? "var(--ink)" : "var(--faint)" }}
                     >
                       {estOut ? formatTokens(estOut, 4) : "—"}
                     </div>
@@ -886,14 +996,12 @@ export default function Page() {
                     </div>
                   </div>
 
-                  <div className="quote-lines">
-                    <div className="quote-line">
-                      <span>fill fee / min out (slippage-protected)</span>
-                      <span className="v">
-                        3 bps · ≥ {estOut ? formatTokens(minOut, 4) : "—"}
-                      </span>
+                  <div className="quoteline">
+                    <div className="row">
+                      <span>min out (slippage-protected)</span>
+                      <span className="v">≥ {estOut ? formatTokens(minOut, 4) : "—"}</span>
                     </div>
-                    <div className="quote-line">
+                    <div className="row">
                       <label htmlFor="slip" style={{ color: "inherit" }}>
                         slippage tolerance %
                       </label>
@@ -904,14 +1012,13 @@ export default function Page() {
                         onChange={(e) => setSlippagePct(e.target.value)}
                         inputMode="decimal"
                         aria-label="slippage tolerance percent"
-                        style={{ width: 64 }}
                       />
                     </div>
-                    <div className="quote-line">
-                      <span>bond escrowed 21 s (20 bps)</span>
-                      <span className="v bond">{amountIn ? formatTokens(bond, 6) : "—"}</span>
+                    <div className="row">
+                      <span>bond escrowed 24 s (20 bps)</span>
+                      <span className="v amber">{amountIn ? formatTokens(bond, 6) : "—"}</span>
                     </div>
-                    <div className="quote-line">
+                    <div className="row">
                       <span>deadline</span>
                       <span className="v">+5 min</span>
                     </div>
@@ -934,7 +1041,7 @@ export default function Page() {
                       </button>
                     )}
                     <button
-                      className="btn btn-primary"
+                      className="btn btn-tide"
                       onClick={onSwap}
                       disabled={busy !== null || !amountIn || tooSmall || needApprove}
                     >
@@ -959,41 +1066,23 @@ export default function Page() {
                   </div>
 
                   <p className="tx-note">
-                    exact approvals only · every write simulated first · refunds are pull-based
-                    claims · net cost for organic flow is the 3 bps fee
+                    exact approvals only · every write simulated first · refunds paid at settle ·
+                    net cost for organic flow is the 3 bps fee
                   </p>
                 </>
               )}
             </div>
           </section>
 
-          {/* ------------------------------------------- oracle panel */}
-          <section className="card" aria-label="Mean reversion oracle">
-            <div className="card-head">
-              <div className="card-title">Price memory tape</div>
-              <div className="card-note">
-                <span className="pulse" aria-hidden="true" />
-                {active ? "tracking trade" : "no active trade"}
+          {/* trade control */}
+          <section className="panel" aria-label="Settlement">
+            <div className="panel-head">
+              <div className="panel-title">Settlement</div>
+              <div className="panel-note">
+                {active ? `trade ${short(active.id, 6)}` : "no active trade"}
               </div>
             </div>
-            <div className="card-body">
-              <div className="live-row">
-                <span className="k">pool price</span>
-                <span className="v">{price ? price.toFixed(6) : "…"} MDB/MDA</span>
-              </div>
-              <div className="live-row">
-                <span className="k">tick</span>
-                <span className="v">{liveTick !== null ? liveTick : "…"}</span>
-              </div>
-
-              <PriceTape
-                pre={preview ? preview.pre : active ? active.preTick : null}
-                post={preview ? preview.post : active ? active.postTick : null}
-                windowAvg={preview ? preview.windowAvg : null}
-                liveTick={liveTick}
-                outcome={active ? active.outcome : -1}
-              />
-
+            <div className="panel-body">
               {active ? (
                 <div aria-live="polite">
                   <div className="countdown">
@@ -1011,7 +1100,7 @@ export default function Page() {
                     <div className="countdown-label">
                       {active.outcome === 0
                         ? windowOpen
-                          ? "fixed window running — price decides the bond"
+                          ? "fixed window — price decides the bond"
                           : "window closed — anyone may settle"
                         : active.outcome === 2
                           ? "refund verdict — delivery failed, claim retries"
@@ -1020,16 +1109,16 @@ export default function Page() {
                   </div>
 
                   {preview && active.outcome === 0 && (
-                    <div className="quote-lines">
-                      <div className="quote-line">
+                    <div className="quoteline">
+                      <div className="row">
                         <span>reversion of own impact</span>
-                        <span className={Number(preview.reversionBps) >= 5000 ? "v pos" : "v bond"}>
+                        <span className={Number(preview.reversionBps) >= 5000 ? "v tide" : "v amber"}>
                           {(Number(preview.reversionBps) / 100).toFixed(1)}%
                         </span>
                       </div>
-                      <div className="quote-line">
+                      <div className="row">
                         <span>projected verdict if settled now</span>
-                        <span className={preview.expected === 1 ? "v pos" : "v bond"}>
+                        <span className={preview.expected === 1 ? "v tide" : "v amber"}>
                           {preview.expected === 1 ? "REFUND" : "DONATE"}
                         </span>
                       </div>
@@ -1039,22 +1128,42 @@ export default function Page() {
                   <div className="action-stack">
                     {active.outcome === 0 && (
                       <button
-                        className="btn btn-primary"
+                        className="btn btn-tide"
                         onClick={() => onSettle(active.id)}
                         disabled={busy !== null || windowOpen}
                       >
-                        {busy === "settle" ? "settling…" : windowOpen ? `wait ${remaining}s` : "settle(tradeId) — anyone can"}
+                        {busy === "settle"
+                          ? "settling…"
+                          : windowOpen
+                            ? `wait ${remaining}s`
+                            : "settle — anyone can"}
                       </button>
                     )}
                     {active.outcome === 2 && !active.refundClaimed && (
-                      <button className="btn btn-primary" onClick={() => onClaim(active.id)} disabled={busy !== null}>
-                        {busy === "claim" ? "claiming…" : "claimRefund(tradeId)"}
+                      <button
+                        className="btn btn-tide"
+                        onClick={() => onClaim(active.id)}
+                        disabled={busy !== null}
+                      >
+                        {busy === "claim" ? "claiming…" : "claimRefund — retry"}
                       </button>
                     )}
                     {active.outcome === 3 && (
                       <button className="btn" onClick={onFlush} disabled={busy !== null}>
-                        {busy === "flush" ? "flushing…" : "flushDonation(poolId) → LPs"}
+                        {busy === "flush" ? "flushing…" : "flushDonation → LPs"}
                       </button>
+                    )}
+                    {active.outcome === 1 && (
+                      <div className="verdict-box refund">
+                        <div className="verdict-word">Refunded</div>
+                        <div className="verdict-sub">
+                          {formatTokens(active.bondAmount, 6)}{" "}
+                          {active.bondCurrency.toLowerCase() === TOKEN0.toLowerCase()
+                            ? "MDA"
+                            : "MDB"}{" "}
+                          returned to the trader
+                        </div>
+                      </div>
                     )}
                     <a
                       href={explorerTx(active.txHash)}
@@ -1065,22 +1174,25 @@ export default function Page() {
                       swap tx ↗
                     </a>
                   </div>
+
                   <p className="tx-note">
-                    trade id {short(active.id, 10)} · bond {formatTokens(active.bondAmount, 6)}{" "}
+                    bond {formatTokens(active.bondAmount, 6)}{" "}
                     {active.bondCurrency.toLowerCase() === TOKEN0.toLowerCase() ? "MDA" : "MDB"}
                   </p>
                 </div>
               ) : (
-                <p className="empty">swap to bond a trade — refresh-safe, recoverable from history</p>
+                <p className="empty">
+                  swap to record a trade — refresh-safe, recovered from your own receipts
+                </p>
               )}
             </div>
           </section>
         </div>
 
-        {/* ---------------------------------------------------- history */}
+        {/* ---------------------------------------------------- ledger */}
         <section className="section" aria-label="Your bonded trades">
-          <div className="section-title">Your bonded trades — settle &amp; claim from here</div>
-          <div className="card">
+          <div className="section-title">The ledger</div>
+          <div className="panel">
             {trades.length === 0 ? (
               <div className="empty">
                 {address
@@ -1088,7 +1200,7 @@ export default function Page() {
                   : "connect a wallet to load your trade history"}
               </div>
             ) : (
-              <table className="hist">
+              <table className="ledger">
                 <thead>
                   <tr>
                     <th>trade</th>
@@ -1105,7 +1217,9 @@ export default function Page() {
                       className={r.id === activeId ? "row-active" : ""}
                       onClick={() => setActiveId(r.id)}
                     >
-                      <td className="mono-strong" data-label="trade">{short(r.id, 8)}</td>
+                      <td className="strong" data-label="trade">
+                        {short(r.id, 8)}
+                      </td>
                       <td data-label="bond">{formatTokens(r.bondAmount, 6)}</td>
                       <td data-label="status">
                         {r.outcome === 1 ? (
@@ -1117,11 +1231,11 @@ export default function Page() {
                         ) : r.outcome === 3 ? (
                           <span className="badge donate">donated</span>
                         ) : r.outcome === 0 ? (
-                          <span className="badge pending">
+                          <span className="badge">
                             {chainNow >= r.settleAfter ? "settleable" : "window open"}
                           </span>
                         ) : (
-                          <span className="badge pending">…</span>
+                          <span className="badge">…</span>
                         )}
                       </td>
                       <td data-label="actions">
@@ -1163,59 +1277,63 @@ export default function Page() {
           </div>
         </section>
 
-        {/* ---------------------------------------------------- footer */}
-        <footer className="site" id="proofs">
+        {/* ---------------------------------------------------- colophon */}
+        <footer className="colophon" id="proofs">
           <div>
-            <div className="foot-row">
+            <div className="row">
               <span className="k">PoolManager</span>
               <a href={explorerAddress(POOL_MANAGER)} target="_blank" rel="noreferrer">
                 canonical Sepolia v4 ↗
               </a>
             </div>
-            <div className="foot-row">
-              <span className="k">MarkoutHook</span>
+            <div className="row">
+              <span className="k">Hook</span>
               <a href={explorerAddress(HOOK)} target="_blank" rel="noreferrer">
                 {short(HOOK, 6)} ↗
               </a>
             </div>
-            <div className="foot-row">
-              <span className="k">MarkoutRouter</span>
+            <div className="row">
+              <span className="k">Router</span>
               <a href={explorerAddress(ROUTER)} target="_blank" rel="noreferrer">
                 {short(ROUTER, 6)} ↗
               </a>
+              <span style={{ color: "var(--faint)" }}>— convenience; any router works</span>
             </div>
-            <div className="foot-row">
-              <span className="k">Faucet tokens</span>
+            <div className="row">
+              <span className="k">Faucet</span>
               <span>
-                {short(TOKEN0)} · {short(TOKEN1)} — capped supply, per-wallet cap, no blacklist
+                {short(TOKEN0)} · {short(TOKEN1)} — capped, no blacklist
               </span>
             </div>
           </div>
           <div>
-            <div className="foot-row">
-              <span className="k">Live refund</span>
+            <div className="row">
+              <span className="k">Refund proof</span>
               <a href={explorerTx(PROOFS.refundSettle)} target="_blank" rel="noreferrer">
-                Settled(Refund) + claim ↗
+                refunded at settle ↗
               </a>
             </div>
-            <div className="foot-row">
-              <span className="k">Live donate</span>
+            <div className="row">
+              <span className="k">Donate proof</span>
               <a href={explorerTx(PROOFS.donateSettle)} target="_blank" rel="noreferrer">
-                Settled(Donate) + flush ↗
+                donated + flushed ↗
               </a>
             </div>
-            <div className="foot-row">
-              <span className="k">RPC</span>
-              <span>
-                {rpcOk ? "healthy" : "degraded"} · {RPC_URLS.length} endpoints
-              </span>
+            <div className="row">
+              <span className="k">Demo video</span>
+              <span className="hole">coming — human-owned</span>
+            </div>
+            <div className="row">
+              <span className="k">Hosted app</span>
+              <span className="hole">coming — human-owned</span>
             </div>
           </div>
-          <p className="foot-note">
-            Fixed [bondTime, settleAfter] window: settlement at T+1 or T+1h interpolates the same
-            historical endpoint — verdicts cannot change with delay. Donations socialize to the LPs
-            currently in range and defer while liquidity is zero. The oracle is entirely hook-local:
-            pool ticks plus a hook-maintained previous-tick accumulator.
+          <p className="colophon-note">
+            Fixed [bond, settleAfter] window: settling late interpolates the same historical
+            endpoint — verdicts never change with delay. Donations socialize to the LPs in range
+            at flush. The oracle is entirely hook-local: pool ticks plus a hook-maintained
+            accumulator. What it doesn&apos;t catch: slow trend flow, the front leg of an atomic
+            sandwich, donate-to-whoever-is-in-range. No partner integrations.
           </p>
         </footer>
       </main>
@@ -1224,108 +1342,168 @@ export default function Page() {
 }
 
 // ---------------------------------------------------------------------------
-// Price Memory Tape — pre / post / window average / 50% frontier / verdict
+// MemoryTape — the instrument. Live phosphor trace of the pool tick, the
+// trade's fixed window, pre/post/frontier lines, the window average, and
+// the verdict once terminal.
 // ---------------------------------------------------------------------------
 
-function PriceTape({
+function MemoryTape({
+  trace,
+  chainNow,
   pre,
   post,
   windowAvg,
-  liveTick,
+  bondTime,
+  settleAfter,
   outcome,
 }: {
+  trace: { t: number; tick: number }[];
+  chainNow: bigint;
   pre: number | null;
   post: number | null;
   windowAvg: number | null;
-  liveTick: number | null;
+  bondTime: bigint;
+  settleAfter: bigint;
   outcome: number;
 }) {
-  const W = 560;
-  const H = 170;
-  const PAD = 26;
+  const W = 1120;
+  const H = 300;
+  const PAD_L = 64;
+  const PAD_R = 20;
+  const PAD_Y = 30;
+  const SPAN = 180; // seconds visible
 
-  const ticks: number[] = [];
+  const now = chainNow > 0n ? Number(chainNow) : null;
+  const x = (t: number) => PAD_L + ((t - (now ?? t)) / SPAN) * (W - PAD_L - PAD_R);
+
+  const ticks: number[] = trace.map((p) => p.tick);
   if (pre !== null) ticks.push(pre);
   if (post !== null) ticks.push(post);
   if (windowAvg !== null) ticks.push(windowAvg);
-  if (liveTick !== null) ticks.push(liveTick);
-  if (pre !== null && post !== null) ticks.push(Math.round((pre + post) / 2));
+  const lo = ticks.length ? Math.min(...ticks) - 10 : -10;
+  const hi = ticks.length ? Math.max(...ticks) + 10 : 10;
+  const y = (tick: number) => H - PAD_Y - ((tick - lo) / (hi - lo)) * (H - 2 * PAD_Y);
 
-  const lo = ticks.length ? Math.min(...ticks) - 12 : -12;
-  const hi = ticks.length ? Math.max(...ticks) + 12 : 12;
-  const y = (t: number) => H - PAD - ((t - lo) / (hi - lo)) * (H - 2 * PAD);
+  const frontier = pre !== null && post !== null ? (pre + post) / 2 : null;
 
-  const frontier = pre !== null && post !== null ? Math.round((pre + post) / 2) : null;
+  const poly = trace
+    .filter((p) => now === null || now - p.t <= SPAN)
+    .map((p) => `${x(p.t).toFixed(1)},${y(p.tick).toFixed(1)}`)
+    .join(" ");
 
-  const fmt = (t: number) => tickToPrice(t).toFixed(5);
+  const showWindow = outcome === 0 && bondTime > 0n && settleAfter > 0n && now !== null;
+  const wx1 = x(Number(bondTime));
+  const wx2 = x(Number(settleAfter));
+  const sweepX = showWindow ? Math.min(x(now!), Math.max(wx2, wx1)) : null;
 
   return (
-    <div className="tape-wrap" role="img" aria-label="Price memory tape">
-      <svg viewBox={`0 0 ${W} ${H}`} className="tape">
-        {/* window shade */}
-        <rect x={PAD} y={10} width={W * 0.6} height={H - 30} className="tape-window" />
-        <text x={PAD + 6} y={22} className="tape-label">
-          fixed window [bond, bond+21s]
+    <svg viewBox={`0 0 ${W} ${H}`} className="tape-svg" role="img" aria-label="Price memory tape">
+      {[0.25, 0.5, 0.75].map((f) => (
+        <line
+          key={f}
+          x1={PAD_L}
+          x2={W - PAD_R}
+          y1={PAD_Y + f * (H - 2 * PAD_Y)}
+          y2={PAD_Y + f * (H - 2 * PAD_Y)}
+          className="tape-gridline"
+        />
+      ))}
+
+      {pre !== null && (
+        <>
+          <line x1={PAD_L} x2={W - PAD_R} y1={y(pre)} y2={y(pre)} className="tape-pre" />
+          <text x={W - PAD_R - 4} y={y(pre) - 5} className="tape-label" textAnchor="end">
+            pre {tickToPrice(pre).toFixed(5)}
+          </text>
+        </>
+      )}
+      {post !== null && (
+        <>
+          <line x1={PAD_L} x2={W - PAD_R} y1={y(post)} y2={y(post)} className="tape-post" />
+          <text x={W - PAD_R - 4} y={y(post) + 13} className="tape-label" textAnchor="end">
+            post {tickToPrice(post).toFixed(5)}
+          </text>
+        </>
+      )}
+      {frontier !== null && (
+        <>
+          <line
+            x1={PAD_L}
+            x2={W - PAD_R}
+            y1={y(frontier)}
+            y2={y(frontier)}
+            className="tape-frontier"
+          />
+          <text x={PAD_L + 6} y={y(frontier) + 13} className="tape-label tide">
+            50% reversion frontier
+          </text>
+        </>
+      )}
+
+      {showWindow && (
+        <>
+          <rect
+            x={Math.min(wx1, W - PAD_R)}
+            y={PAD_Y - 14}
+            width={Math.max(Math.min(wx2, W - PAD_R) - Math.min(wx1, W - PAD_R), 2)}
+            height={H - 2 * PAD_Y + 28}
+            className="tape-window"
+          />
+          <text x={Math.min(wx1, W - 220) + 6} y={PAD_Y - 18} className="tape-label tide">
+            fixed window · 24 s
+          </text>
+          {sweepX !== null && sweepX > Math.min(wx1, W - PAD_R) && (
+            <line
+              x1={sweepX}
+              x2={sweepX}
+              y1={PAD_Y - 10}
+              y2={H - PAD_Y + 10}
+              className="sweep"
+            />
+          )}
+        </>
+      )}
+
+      {poly && <polyline points={poly} className="trace-live" />}
+
+      {windowAvg !== null && (
+        <g
+          className={
+            outcome === 1 ? "tape-avg refund" : outcome === 3 ? "tape-avg donate" : "tape-avg"
+          }
+        >
+          <line x1={wx2 - 9} x2={wx2 + 9} y1={y(windowAvg)} y2={y(windowAvg)} />
+          <circle cx={wx2} cy={y(windowAvg)} r={4} />
+          <text x={wx2 + 14} y={y(windowAvg) + 4} className="tape-label">
+            window avg {tickToPrice(windowAvg).toFixed(5)}
+          </text>
+        </g>
+      )}
+
+      {trace.length > 0 && (
+        <circle
+          cx={x(trace[trace.length - 1].t)}
+          cy={y(trace[trace.length - 1].tick)}
+          r={3.5}
+          fill="var(--tide)"
+        />
+      )}
+
+      {outcome === 1 && (
+        <text x={W / 2} y={H - 8} className="tape-verdict refund" textAnchor="middle">
+          bond → trader, paid at settle
         </text>
-
-        {pre !== null && (
-          <>
-            <line x1={PAD} x2={W - PAD} y1={y(pre)} y2={y(pre)} className="tape-pre" />
-            <text x={W - PAD - 4} y={y(pre) - 4} className="tape-label" textAnchor="end">
-              pre {fmt(pre)}
-            </text>
-          </>
-        )}
-        {post !== null && (
-          <>
-            <line x1={PAD} x2={W - PAD} y1={y(post)} y2={y(post)} className="tape-post" />
-            <text x={W - PAD - 4} y={y(post) + 12} className="tape-label" textAnchor="end">
-              post {fmt(post)}
-            </text>
-          </>
-        )}
-        {frontier !== null && (
-          <>
-            <line x1={PAD} x2={W - PAD} y1={y(frontier)} y2={y(frontier)} className="tape-frontier" />
-            <text x={PAD + 6} y={y(frontier) + 12} className="tape-label green">
-              50% reversion frontier {fmt(frontier)}
-            </text>
-          </>
-        )}
-
-        {/* window average marker */}
-        {windowAvg !== null && (
-          <g className={outcome === 1 ? "tape-avg refund" : outcome === 2 ? "tape-avg donate" : "tape-avg"}>
-            <line x1={W * 0.6 - 8} x2={W * 0.6 + 8} y1={y(windowAvg)} y2={y(windowAvg)} />
-            <circle cx={W * 0.6} cy={y(windowAvg)} r={4} />
-            <text x={W * 0.6 + 12} y={y(windowAvg) + 4} className="tape-label">
-              window avg {fmt(windowAvg)}
-            </text>
-          </g>
-        )}
-
-        {/* live price dot */}
-        {liveTick !== null && (
-          <g className="tape-live">
-            <circle cx={W - PAD - 10} cy={y(liveTick)} r={3.5} />
-            <text x={W - PAD - 16} y={y(liveTick) - 6} className="tape-label" textAnchor="end">
-              live {fmt(liveTick)}
-            </text>
-          </g>
-        )}
-
-        {/* bond destination after verdict */}
-        {outcome === 1 && (
-          <text x={W / 2} y={H - 6} className="tape-verdict refund" textAnchor="middle">
-            BOND → TRADER (paid at settle)
-          </text>
-        )}
-        {outcome === 3 && (
-          <text x={W / 2} y={H - 6} className="tape-verdict donate" textAnchor="middle">
-            BOND → IN-RANGE LPs (deferred donation)
-          </text>
-        )}
-      </svg>
-    </div>
+      )}
+      {outcome === 3 && (
+        <text x={W / 2} y={H - 8} className="tape-verdict donate" textAnchor="middle">
+          bond → in-range LPs
+        </text>
+      )}
+      {outcome === 2 && (
+        <text x={W / 2} y={H - 8} className="tape-verdict refund" textAnchor="middle">
+          refund pending — retry claim
+        </text>
+      )}
+    </svg>
   );
 }
