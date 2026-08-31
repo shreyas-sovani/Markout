@@ -43,6 +43,7 @@ contract DeploySepolia is Script {
 
     function run() public {
         uint256 pk = vm.envUint("ACC3_PRIV_KEY");
+        address operator = vm.addr(pk); // explicit: newer forge sims route msg.sender to DefaultSender
         vm.startBroadcast(pk);
 
         // 1. Capped faucet demo tokens — no blacklist, no tax, capped supply,
@@ -82,8 +83,8 @@ contract DeploySepolia is Script {
         // 5. Initialize + seed through canonical periphery (Permit2-funded).
         posMgr.initializePool(key, SQRT_PRICE_1_1);
 
-        token0.mint(msg.sender, 200e18);
-        token1.mint(msg.sender, 200e18);
+        token0.mint(operator, 200e18);
+        token1.mint(operator, 200e18);
         token0.approve(address(PERMIT2), type(uint256).max);
         token1.approve(address(PERMIT2), type(uint256).max);
         PERMIT2.approve(address(token0), address(posMgr), type(uint160).max, type(uint48).max);
@@ -98,7 +99,7 @@ contract DeploySepolia is Script {
             LP_LIQUIDITY,
             100e18, // amount0Max
             100e18, // amount1Max
-            msg.sender,
+            operator,
             new bytes(0)
         );
         params[1] = abi.encode(key.currency0, key.currency1);
@@ -106,8 +107,8 @@ contract DeploySepolia is Script {
 
         // 6. Demo float for the operator EOA (proof runs, faucet for judges
         //    happens through the token's own permissionless capped mint).
-        token0.mint(msg.sender, OPERATOR_MINT);
-        token1.mint(msg.sender, OPERATOR_MINT);
+        token0.mint(operator, OPERATOR_MINT);
+        token1.mint(operator, OPERATOR_MINT);
         vm.stopBroadcast();
 
         console2.log("token0:", address(token0));

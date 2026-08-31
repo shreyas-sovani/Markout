@@ -10,12 +10,15 @@ This file is the canonical source of instructions for any AI coding agent workin
 
 ### Things actively in flux right now
 
-- Code stable: `forge test` 43/43 (engine unit+fuzz, integration+attack, invariant fuzz, canonical-Sepolia fork). Canonical-PM deployment live and Etherscan-verified (2026-08-27: hook `0x027C6cfD540f0446641846cd004b41561EEd70cC`, router `0x41Fd0B2B581C5F59d468D272dbfcc26e595383CF`, faucet tokens `0x7B0B…`/`0xf3df…`; proof pack = 1:1 next-block reversion refunded AT SETTLE + donate/flush). All prior deployments are stale.
-- Product polish pass done (2026-08-27): README/demo.md rewritten in product voice (LP-first, `No partner integrations`, honest limits, numbers out of the headline). Frontend rebuilt as a cream-paper product: magenta / gold, Fraunces + Hanken Grotesk + JetBrains Mono, Tailwind + shadcn, three routes (`/` landing, `/app` memory console, `/docs`) with the god-page split into `lib/markout.tsx` (MarkoutProvider). `next build` green; SSR verified per route; tx wiring unchanged.
-- Remaining human work: demo video (hole left in README + UI), hosted URL (hole left), final submission.
+- Code stable: `forge test` 48/48 (engine unit+fuzz, integration+attack incl. hookData rules / batched-unlock keying / named sandwich limit / LP-dividend-vs-vanilla, invariant fuzz, canonical fork incl. the PositionManager remove path). **Live deployment = 2026-08-31 cut, Etherscan-verified, src === bytecode, no drift**: hook `0x6432C6e932809499D4Ec267CC41FBE2AEFBa70CC`, router `0x46415Ef59235f7Abd989E76a2A4952d02A22365e`, tokens `0x313edA…`(MDA)/`0xA73AEC…`(MDB), pool `0x8a6c41ea…`, canonical PM unchanged, seeded 10e18 via the official PositionManager. Proof pack (2026-08-31, all our txs): pre-signed buy 11607382 + reverse in EXACTLY the next block 11607383 → `Settled(outcome 1)` refund at settle; unreversed swap → `Settled(outcome 3)` + flush. hookData zero-guard is LIVE. The 2026-08-27 and earlier deployments are stale.
+- Judge surface (2026-08-31): landing hero = live `LandingTape` (slot0 trace, no wallet, no KPI strip) + "What this hook does not do" honest block (sandwich / tax-not-LVR / flush-recipient); `/app` = 5-step Pipeline Connect→Mint→LP-or-skip→Swap→Settle with a REAL LP write path (`LpPanel`: official PositionManager + Permit2 add/remove, encodings byte-proven vs foundry and fork-proven) plus pool-wide `LpSeat` + flush; demo pilots chain-keyed (`settleAfter` from `trades()`), refund demo warns when the reverse didn't land next block, donate demo flushes only on outcome 3; RPC order env → tenderly → publicnode (publicnode silently prunes ~day-old logs and viem never fails over on empty arrays); hosted URL **https://markout-nine.vercel.app** wired everywhere (Vercel deploys `main` — latest push not yet deployed; human owns the pipeline).
+- Operator EOA `0xFeAf…690A` is **EIP-7702-delegated** — forge broadcast fan-out fails (`gapped-nonce`); deploy/proof txs must go sequentially (see script/AGENTS.md war stories).
+- Remaining human work: demo video (hole left, labeled "coming, human-recorded"), commit/push/Vercel deploy of this cut, final submission.
 - Frontend CSS: do not run `next build` and `next dev` against the same `frontend/.next`. Dual Next processes (3000 + fallback 3001) 404 the stylesheet and `/app` renders as unstyled HTML. Tailwind config is CJS `frontend/tailwind.config.js` + `postcss.config.mjs`.
 
 ---
+
+
 
 ## 1. The Directory Documentation Protocol (mandatory, every task)
 
@@ -80,6 +83,8 @@ Copy this structure exactly when creating a new subdirectory AGENTS.md. Keep sec
 [Non-obvious traps, past mistakes, things that look wrong but are intentional, or vice versa.]
 ```
 
+
+
 ### 1.4 Updating vs. rewriting
 
 When a directory's AGENTS.md already exists:
@@ -90,6 +95,8 @@ When a directory's AGENTS.md already exists:
 
 ---
 
+
+
 ## 2. Cross-Tool Notes
 
 - **Codex**: resolves the nearest AGENTS.md to the file being edited. In a monorepo, this means the most specific subdirectory file wins for local conventions; this root file still applies for global rules like Section 1.
@@ -99,6 +106,8 @@ When a directory's AGENTS.md already exists:
 Do not fork instructions per tool. If a tool needs something extra, add a small tool-specific file that imports/references this one; never copy-paste and let copies diverge.
 
 ---
+
+
 
 ## 3. Session Handoff Protocol
 
@@ -112,9 +121,13 @@ Used when a human is about to run out of context window on the current agent ses
 
 ---
 
+
+
 ## 4. Global Conventions
-Build: Use forge build to compile the Solidity smart contracts.  Test: Use forge test to run the Foundry suite, asserting observable outcomes through module interfaces (e.g. organicQuiet_refundsBond, exactOut_chargesInputBondAndFillsOutput, and swapTooSmall_reverts).  Lint/format: Use forge fmt for standard Solidity formatting.Branch/commit conventions: All commits must be made to a public GitHub repository on the correct branch to satisfy the binary qualifications for judging.  Disclosures detailing that the mean-reversion oracle is entirely hook-local (pool's own prices + hook accumulator, no external oracle partner) must stay in the README.
----
+
+## Build: Use forge build to compile the Solidity smart contracts.  Test: Use forge test to run the Foundry suite, asserting observable outcomes through module interfaces (e.g. organicQuiet_refundsBond, exactOut_chargesInputBondAndFillsOutput, and swapTooSmall_reverts).  Lint/format: Use forge fmt for standard Solidity formatting.Branch/commit conventions: All commits must be made to a public GitHub repository on the correct branch to satisfy the binary qualifications for judging.  Disclosures detailing that the mean-reversion oracle is entirely hook-local (pool's own prices + hook accumulator, no external oracle partner) must stay in the README.
+
+
 
 ## 5. What Never Goes in These Files
 

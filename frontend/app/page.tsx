@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { Seal } from "@/components/Brand";
-import { HeroVisual } from "@/components/HeroVisual";
+import { LandingTape } from "@/components/LandingTape";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER } from "@/lib/contracts";
+import { APP_URL, HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER } from "@/lib/contracts";
 
 /**
  * Markout landing: cream paper, ink text, magenta brand, hatch strip + facts
@@ -35,6 +35,7 @@ export default function Landing() {
       <HowItWorks />
       <Comparison />
       <InkBand />
+      <HonestLimits />
       <LiveOnTestnet />
       <FinalCta />
       <SiteFooter />
@@ -48,7 +49,7 @@ const TICKER = [
   "Live on the canonical Sepolia PoolManager",
   "Any v4 router can pay the bond — no allowlist, no settleFor",
   "24-second fixed window: verdicts can't change with delay",
-  "43 passing Foundry tests incl. canonical fork",
+  "48 passing Foundry tests incl. canonical fork",
   "Toxic one-shot flow pays in-range LPs",
 ];
 
@@ -99,10 +100,10 @@ function Hero() {
           </h1>
 
           <p className="mx-auto mt-6 max-w-xl animate-rise font-sans text-[16px] leading-relaxed text-ink-soft [animation-delay:120ms] lg:mx-0">
-            A Uniswap v4 hook that lets a volatile pool quote tight and stay solvent: one-shot
-            arbitrage posts a bond it forfeits to in-range liquidity, and organic flow gets it{" "}
-            <strong className="font-semibold text-brand">refunded at settlement</strong> the
-            moment the price reverts behind it.
+            Each swap is marked 24 seconds later. If at least half of that swap&apos;s own price
+            impact reverted, the bond returns to the trader at settle. If it stayed,{" "}
+            <strong className="font-semibold text-ink">in-range LPs keep it</strong> — so a
+            volatile pool can quote 3 bps without farming its own liquidity.
           </p>
 
           <div className="mt-8 flex animate-rise flex-wrap items-center justify-center gap-3 [animation-delay:180ms] lg:justify-start">
@@ -114,24 +115,13 @@ function Hero() {
             </Button>
           </div>
 
-          <dl className="mx-auto mt-9 grid max-w-md animate-rise grid-cols-3 divide-x divide-edge overflow-hidden rounded-lg border border-edge [animation-delay:240ms] lg:mx-0">
-            {[
-              ["3 bps", "fill fee"],
-              ["24 s", "fixed window"],
-              ["43", "tests passing"],
-            ].map(([v, k]) => (
-              <div key={k} className="bg-card px-2 py-4 text-center">
-                <dt className="font-display text-[20px] font-semibold tabular-nums tracking-tight text-ink">
-                  {v}
-                </dt>
-                <dd className="mt-1 font-sans text-[11px] leading-snug text-muted">{k}</dd>
-              </div>
-            ))}
-          </dl>
+          <p className="mx-auto mt-6 animate-rise font-mono text-[11px] text-faint [animation-delay:240ms] lg:mx-0">
+            live at <a className="text-brand underline-offset-2 hover:underline" href={APP_URL} target="_blank" rel="noopener noreferrer">{APP_URL.replace("https://", "")}</a> · Chrome + MetaMask on Sepolia
+          </p>
         </div>
 
-        <div className="hidden animate-rise [animation-delay:300ms] lg:block">
-          <HeroVisual />
+        <div className="animate-rise [animation-delay:300ms]">
+          <LandingTape />
         </div>
       </div>
     </section>
@@ -307,6 +297,7 @@ function Comparison() {
                   ["Advertised fee", "high, to cover toxicity", "text-ink"],
                   ["Single-shot arb", "extracted, free", "text-rose"],
                   ["Organic flow", "pays the high fee too", "text-rose"],
+                  ["LP dividend", "none — losses only", "text-rose"],
                 ]}
                 foot={["Net", "tight quotes impossible", "text-rose"]}
               />
@@ -324,6 +315,7 @@ function Comparison() {
                   ["Advertised fee", "3 bps", "text-ink"],
                   ["Single-shot arb", "20 bps bond → LPs", "text-brand"],
                   ["Organic flow", "bond refunded at settle", "text-brand"],
+                  ["LP dividend", "forfeited bonds, flushed in", "text-brand"],
                 ]}
                 foot={["Net", "tight quotes, toxic flow pays", "text-brand"]}
               />
@@ -380,8 +372,8 @@ function InkBand() {
       "The bond rides the swap caller's own delta. Universal Router, your contract, v4's own test routers — all pay it unchanged.",
     ],
     [
-      "MEV internalized on-chain",
-      "Toxic flow pays LPs inside the pool, with no off-chain component, no private orderflow, and no keepers required for correctness.",
+      "Toxic flow pays into the pool",
+      "Sustained one-shot moves forfeit their bond to in-range liquidity on-chain — no off-chain component, no private orderflow, no keepers required for correctness.",
     ],
     [
       "No partner integrations",
@@ -395,16 +387,15 @@ function InkBand() {
           The differentiator
         </span>
         <h2 className="mt-3 max-w-2xl font-display text-[28px] font-semibold tracking-tight text-background md:text-[40px]">
-          Toxic flow pays the LPs. On the canonical pool.
+          Toxic flow pays in-range LPs. On the canonical pool.
         </h2>
         <p className="mt-4 max-w-2xl font-sans text-[15.5px] leading-relaxed text-background/75">
           Directional fees in{" "}
           <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[13.5px] text-gold-bright">
             beforeSwap
           </code>{" "}
-          are common. Markout internalizes the MEV itself: the informed move forfeits its bond
-          into the pool it tried to exploit, on the same shared infrastructure every v4 pool
-          uses.
+          are common. Markout taxes the informed move itself: it forfeits its bond into the pool
+          it tried to exploit, on the same shared infrastructure every v4 pool uses.
         </p>
 
         <div className="mt-10 grid gap-4 sm:grid-cols-2">
@@ -417,6 +408,52 @@ function InkBand() {
                 </p>
               </CardContent>
             </Card>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ───────────────────── honest limits ───────────────────── */
+
+function HonestLimits() {
+  const limits: [string, string][] = [
+    [
+      "Atomic same-block sandwiches pass",
+      "The front leg and the victim refund — the backrun leg, unreversed, is what donates. A same-block rule cannot tell an atomic front from a 1:1 next-block organic reversion, so this limit ships named, not hidden.",
+    ],
+    [
+      "20 bps is a tax, not an LVR hedge",
+      "The measured edge over a vanilla 3 bps pool after identical toxic flow is exactly the forfeited bond — no more. Slow trend flow that never reverts in-window keeps the LP's inventory risk.",
+    ],
+    [
+      "Flushes pay whoever is in range",
+      "Donations pay the liquidity standing at flush time, not the LPs who carried the inventory through the move. And settle is a permissionless call someone must send — never automatic.",
+    ],
+  ];
+  return (
+    <section className="border-b border-edge bg-secondary/30">
+      <div className="mx-auto max-w-content px-5 py-12 md:px-8">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <Eyebrow>Honest limits</Eyebrow>
+            <h2 className="mt-3 font-display text-[24px] font-semibold tracking-tight text-ink md:text-[30px]">
+              What this hook does not do.
+            </h2>
+          </div>
+        </div>
+        <div className="mt-7 grid gap-4 md:grid-cols-3">
+          {limits.map(([t, b]) => (
+            <div key={t} className="rounded-xl border border-line bg-card p-5">
+              <div className="flex items-start gap-2.5">
+                <span className="mt-0.5 font-mono text-[13px] text-rose">✕</span>
+                <div>
+                  <div className="font-sans text-[13.5px] font-semibold text-ink">{t}</div>
+                  <p className="mt-1.5 font-sans text-[12.5px] leading-relaxed text-muted">{b}</p>
+                </div>
+              </div>
+            </div>
           ))}
         </div>
       </div>
@@ -491,25 +528,30 @@ function LiveOnTestnet() {
             ))}
           </div>
           <div className="border-t border-edge px-5 py-3 font-sans text-[12px] text-muted">
-            Fresh proof pack: a 1:1 next-block reversion{" "}
+            Fresh proof pack (2026-08-31): a reversion that landed in{" "}
+            <strong>exactly the next block</strong>{" "}
             <a
               className="text-brand underline-offset-2 hover:underline"
-              href="https://sepolia.etherscan.io/tx/0xda16e75a54e340692774f1405158a5870737b6e33df6400835db1fa6600ddc49"
+              href="https://sepolia.etherscan.io/tx/0x3e229140155705e5bfc46deb33ce4699c187603b940bd1b0fb504da7fb3d33b1"
               target="_blank"
               rel="noopener noreferrer"
             >
               refunded at settlement ↗
             </a>{" "}
-            and the reversal trade{" "}
+            and an unreversed single-shot swap{" "}
             <a
               className="text-brand underline-offset-2 hover:underline"
-              href="https://sepolia.etherscan.io/tx/0xbda1222053c34f4b281082df0b139c04668d8fe8f15238d490d288bc277bfe66"
+              href="https://sepolia.etherscan.io/tx/0xf5834a3db146d8de0c218e0034a4fe4c298a9af4879ee2bd569f8fe8b2538031"
               target="_blank"
               rel="noopener noreferrer"
             >
               donated + flushed ↗
             </a>
-            .
+            . Open the{" "}
+            <a className="text-brand underline-offset-2 hover:underline" href={APP_URL} target="_blank" rel="noopener noreferrer">
+              hosted app ↗
+            </a>{" "}
+            · demo video — coming, human-recorded.
           </div>
         </Card>
       </div>
@@ -532,7 +574,8 @@ function FinalCta() {
         </h2>
         <p className="mx-auto mt-3 max-w-xl font-sans text-[15px] leading-relaxed text-muted">
           Mint capped demo tokens, swap through any router you like, and settle the verdict
-          yourself — the runbook is four commands.
+          yourself. Best in Chrome desktop with MetaMask (or any injected wallet) on Sepolia —
+          no faucet site, no partner keys.
         </p>
         <div className="mt-7 flex justify-center gap-3">
           <Button asChild size="lg">

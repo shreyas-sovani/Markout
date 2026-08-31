@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Toaster } from "sonner";
 import { Connect } from "@/components/Connect";
 import { SiteNav } from "@/components/SiteNav";
 import { Pipeline } from "@/components/Pipeline";
 import { NetworkBanner } from "@/components/NetworkBanner";
 import { MemoryTape } from "@/components/MemoryTape";
+import { LpSeat } from "@/components/LpSeat";
+import { LpPanel } from "@/components/LpPanel";
 import { useMarkout } from "@/lib/markout";
 import { formatTokens, TOKEN0, TOKEN1 } from "@/lib/contracts";
 import { Button } from "@/components/ui/button";
@@ -17,8 +20,33 @@ import { Separator } from "@/components/ui/separator";
 export default function AppPage() {
   const m = useMarkout();
   const connected = !!m.address;
+  const [lpSkipped, setLpSkipped] = useState(false);
 
-  const step = !connected ? 0 : ((m.sellBal ?? 0n) === 0n && (m.buyBal ?? 0n) === 0n) ? 1 : m.trades.length === 0 ? 2 : 3;
+  useEffect(() => {
+    const read = () => {
+      if (m.address) {
+        setLpSkipped(
+          window.localStorage.getItem(`markout:lpSkipped:${m.address.toLowerCase()}`) === "1",
+        );
+      } else {
+        setLpSkipped(false);
+      }
+    };
+    read();
+    window.addEventListener("markout:lp-skipped", read);
+    return () => window.removeEventListener("markout:lp-skipped", read);
+  }, [m.address]);
+
+  const lpDone = m.lpTokenId !== null || lpSkipped;
+  const step = !connected
+    ? 0
+    : (m.sellBal ?? 0n) === 0n && (m.buyBal ?? 0n) === 0n
+      ? 1
+      : !lpDone
+        ? 2
+        : m.trades.length === 0
+          ? 3
+          : 4;
 
   return (
     <div className="relative z-10">
@@ -62,6 +90,12 @@ export default function AppPage() {
           {/* ── Memory tape panel ── */}
           <MemoryPanel />
         </div>
+
+        {/* ── Personal LP seat (add/remove through official PositionManager) ── */}
+        <LpPanel />
+
+        {/* ── LP seat (pool-wide) ── */}
+        <LpSeat />
 
         {/* ── Ledger ── */}
         <Ledger />
@@ -514,7 +548,13 @@ function OutcomeBadge({ outcome, claimed }: { outcome: number; claimed: boolean 
 
 function GuideBanner({ step }: { step: number }) {
   const m = useMarkout();
-  if (step > 1) return null; // past minting — the panels themselves guide
+  const skipLp = () => {
+    if (m.address) {
+      window.localStorage.setItem(`markout:lpSkipped:${m.address.toLowerCase()}`, "1");
+      window.dispatchEvent(new Event("markout:lp-skipped"));
+    }
+  };
+  if (step > 2) return null; // past the LP choice — the panels themselves guide
 
   return (
     <Card className="mb-5 animate-rise overflow-hidden border-brand/30 bg-brand/[0.04]">
@@ -525,12 +565,14 @@ function GuideBanner({ step }: { step: number }) {
           </span>
           <div>
             <div className="font-display text-[19px] font-semibold tracking-tight text-ink">
-              {step === 0 ? "Connect your wallet to begin" : "Get demo tokens"}
+              {step === 0 ? "Connect your wallet to begin" : step === 1 ? "Get demo tokens" : "Provide liquidity — or skip to the swap"}
             </div>
             <div className="font-sans text-[13px] text-muted">
               {step === 0
-                ? "Sepolia · injected wallet (MetaMask, Rabby)"
-                : "One click mints 100 MDA + 100 MDB — capped faucet, no seed phrase, no faucet site"}
+                ? "Chrome desktop + MetaMask (or any injected wallet) on Sepolia"
+                : step === 1
+                  ? "One click mints 100 MDA + 100 MDB — capped faucet, no seed phrase, no faucet site"
+                  : "Be an LP in this pool through the official v4 PositionManager — forfeited bonds flush to in-range liquidity"}
             </div>
           </div>
         </div>
@@ -538,10 +580,24 @@ function GuideBanner({ step }: { step: number }) {
           <Button size="lg" onClick={() => void m.onConnect()} disabled={m.connBusy}>
             {m.connBusy ? "Connecting…" : "Connect Wallet"}
           </Button>
-        ) : (
+        ) : step === 1 ? (
           <Button size="lg" onClick={() => void m.onMint()} disabled={m.busy !== null}>
             {m.busy === "mint" ? "Minting…" : "Get 100 MDA + 100 MDB"}
           </Button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button size="lg" variant="outline" onClick={skipLp}>
+              Skip LP
+            </Button>
+            <Button
+              size="lg"
+              onClick={() =>
+                document.getElementById("lp-panel")?.scrollIntoView({ behavior: "smooth", block: "center" })
+              }
+            >
+              Add liquidity ↓
+            </Button>
+          </div>
         )}
       </CardContent>
     </Card>

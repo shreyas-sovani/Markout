@@ -21,9 +21,15 @@ Wrong addresses/args = broken pool wiring. The `require(address(hook) == predict
 
 ## Current State
 
-Executed successfully 2026-08-27 (overhaul deploy): tokens `0x7B0B…`/`0xf3df…`, hook `0x027C6c…`, router `0x41Fd0B…`, all Etherscan-verified; fresh proof pack: 1:1 next-block reversion refunded AT SETTLE (`0xda16e75a…`), reversal trade donated + flushed. The 2026-08-25 deployment (`0x333A…`/`0xAe5A…`/`0x378f…`, 21 s window, router lock) is STALE. `keeper.sh` pokes/settles/retry-claims/flushes.
+Executed successfully 2026-08-31 (hookData-guard cut): tokens `0x313edA…`/`0xA73AEC…`, hook `0x6432C6…`, router `0x46415E…`, all Etherscan-verified; pool seeded 10e18 full-range through the official PositionManager; proof pack: pre-signed buy (block 11607382) + reverse that landed in EXACTLY the next block (11607383) → `Settled(outcome 1 · Refunded)` at settle; unreversed single-shot swap → `Settled(outcome 3 · Donated)` + flush. The 2026-08-27 and 2026-08-25 deployments are STALE. `keeper.sh` pokes/settles/retry-claims/flushes.
 
 ## Decision Log
+
+### 2026-08-31 — explicit operator + delegated-EOA deploy war stories
+- **Change**: mints/position-owner now use `address operator = vm.addr(pk)` explicitly instead of `msg.sender`. The broadcast was completed MANUALLY after two environment failures: (1) newer forge routes `msg.sender` to `DefaultSender (0x1804…)` during simulation while Permit2 pulls from the broadcaster — the seed reverted `TRANSFER_FROM_FAILED` until recipients were made explicit; (2) the operator EOA carries an **EIP-7702 delegation** (`cast code` shows `0xef0100…`), so publicnode/ethpandaops reject forge's concurrent nonce fan-out with `gapped-nonce tx from delegated accounts` — sequential single txs (or `--slow`) are required. Tokens+hook+router landed via partial forge runs; the remainder (mints, ERC20+Permit2 approvals, PositionManager seed, operator float) ran as sequential `cast send`s, each receipt verified status 0x1.
+- **Reasoning**: forge `--resume` kept re-syncing nonces against the delegated account and aborting; manual completion was deterministic and each step proved itself on-chain before the next.
+- **Rejected alternative(s)**: `--slow` alone (still re-simulated and aborted on nonce resync); deactivating the 7702 delegation (type-4 authorization, not signable cleanly from CLI).
+- **Task/session**: redeploy directive, 2026-08-31.
 
 ### 2026-08-27 — overhaul deploy
 - **Change**: redeployed the allowlist-free cut against the canonical PM (hook flags now `0x30CC` incl. both delta-return flags; one-arg router; no `initializeRouter` — the tx.origin deployer hack died with it). Proof pack regenerated with a retry loop that pre-signs buy+reverse and republishes until the reversion lands ≤ 18 s after the buy (next-block landed on attempt 1: Δ = 12 s, refunded at settle).
@@ -53,7 +59,8 @@ Executed successfully 2026-08-27 (overhaul deploy): tokens `0x7B0B…`/`0xf3df�
 ## Known Gotchas
 
 - Hook must deploy with the **mined salt from HookMiner.find**, never a vanity salt. Flags are `0x30CC` (init + swap + beforeSwapReturnDelta + afterSwapReturnDelta).
-- `address(this)` is banned inside broadcast scripts (forge guard) — use `msg.sender`.
+- `address(this)` is banned inside broadcast scripts (forge guard) — and `msg.sender` is now ALSO unsafe (forge sim routes it to DefaultSender): use `vm.addr(pk)` explicitly.
+- The operator EOA (`0xFeAf…690A`) is **EIP-7702-delegated** — forge's concurrent broadcast sends fail with `gapped-nonce tx from delegated accounts`. Send sequentially (one `cast send` at a time, wait for receipt).
 - The old periphery submodule is checked out at `4d85e04` (2025-01-20, era-matched to v4-core v4.0.0); its `test/shared/HookMiner.sol` was deleted upstream, so HookMiner is vendored at `test/shared/HookMiner.sol`.
-- Refund-demo pairs: pre-sign both txs with `cast mktx --gas-limit 2000000` + explicit nonces and publish back-to-back, retrying until the reverse lands ≤ 18 s after the buy (1:1 size; next-block = the exact 50% frontier). `cast send` twice lands 2-3 blocks apart, and an under-set mktx gas limit reverts OutOfGas.
-- `.env` keys: `ACC3_PRIV_KEY=0x…`, `ETHERSCAN_API_KEY`; gitignored. `cast send` takes `0xfff…f`, not `max`.
+- Refund-demo pairs: pre-sign both txs with `cast mktx --gas-limit 2000000` + explicit nonces and publish back-to-back (1:1 size; next-block = the exact 50% frontier). `cast send` twice lands 2-3 blocks apart, and an under-set mktx gas limit reverts OutOfGas.
+- `.env` keys: `ACC3_PRIV_KEY=0x…`, `ETHERSCAN_API_KEY` (no spaces around `=` — a stray space makes zsh drop the var); gitignored. `cast send` takes `0xfff…f`, not `max`. `cast max-uint160` doesn't exist: uint160 max is `0xff…f` ×40.

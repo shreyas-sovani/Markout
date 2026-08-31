@@ -284,7 +284,14 @@ contract MarkoutHook is BaseHook, IUnlockCallback {
         // The beneficiary: a Markout-aware router may declare its payer in
         // hookData; otherwise the direct swap caller is the trader. This is
         // a convenience, never a gate — anyone may swap through any router.
-        address trader = hookData.length == 32 ? abi.decode(hookData, (address)) : sender;
+        // A 32-byte zero payload is treated as "no declaration" (never burn
+        // a refund to address(0)); any other non-32-byte payload also falls
+        // back to the sender instead of reverting mid-swap.
+        address trader = sender;
+        if (hookData.length == 32) {
+            address declared = abi.decode(hookData, (address));
+            if (declared != address(0)) trader = declared;
+        }
 
         // Checkpoint the accumulator at bond time (attributes elapsed time
         // to the pre-swap tick — previous-tick semantics), then capture both

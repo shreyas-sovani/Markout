@@ -26,9 +26,10 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://markout-nine.vercel.app"),
   title: "Markout: the pool that remembers",
   description:
-    "A Uniswap v4 hook on the canonical Sepolia PoolManager. Toxic one-shot flow posts a bond it forfeits to in-range LPs; organic flow gets it refunded at settlement when the price reverts. Any router. No partner integrations.",
+    "A Uniswap v4 hook on the canonical Sepolia PoolManager. Each swap is marked 24 s later: if ≥50% of its own impact reverted, the 20 bps bond returns to the trader at settle; if it stayed, in-range LPs keep it. Any router. No partner integrations.",
 };
 
 export default function RootLayout({

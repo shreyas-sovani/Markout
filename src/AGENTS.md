@@ -25,9 +25,21 @@ If any contract here is wrong: traders lose bonds incorrectly, LPs lose the MEV 
 
 ## Current State
 
-Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). 43/43 tests green across four suites (unit / integration-attack / fuzz-invariant / canonical-fork). Deployed live against the canonical Sepolia PoolManager 2026-08-27 (hook `0x027C6cfD540f0446641846cd004b41561EEd70cC`, router `0x41Fd0B2B581C5F59d468D272dbfcc26e595383CF`, tokens `0x7B0B…`/`0xf3df…`), Etherscan-verified, with a fresh Refund-at-settle + Donate proof pack. The 2026-08-25 deployment (`0xAe5A…` hook, 21 s window, router lock) is STALE — superseded by this cut.
+Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). 48/48 tests green across four suites (unit / integration-attack / fuzz-invariant / canonical-fork). **Deployed live 2026-08-31** against the canonical Sepolia PoolManager (hook `0x6432C6e932809499D4Ec267CC41FBE2AEFBa70CC`, router `0x46415Ef59235f7Abd989E76a2A4952d02A22365e`, tokens `0x313edA…`/`0xA73AEC…`), Etherscan-verified, seeded 10e18 through the official PositionManager, fresh proof pack (exact-next-block reversion refunded at settle; unreversed swap donated + flushed). Live bytecode === this source — no deploy drift. The 2026-08-27 and 2026-08-25 deployments are STALE.
 
 ## Decision Log
+
+### 2026-08-31 — deployed: the hookData guard is live
+- **Change**: redeployed the full stack so the zero-declaration `hookData` guard ships on-chain. New pool `0x8a6c41ea…`, seeded via official PositionManager, all contracts Etherscan-verified. Beneficiary rule live: 32-byte nonzero declaration honored; everything else falls back to the direct swap caller.
+- **Reasoning**: src/behavior drift vs live bytecode is banned by the repo's honesty rules; the guard closes the silent `address(0)` refund burn for UR-style integrators.
+- **Rejected alternative(s)**: leaving the guard undeployed with a README note (drift); changing the rule further (no-allowlist optimum already reached).
+- **Task/session**: redeploy directive 4b/4d, 2026-08-31.
+
+### 2026-08-31 — hookData zero-declaration guard (tested, not yet deployed)
+- **Change**: `_afterSwap` beneficiary derivation changed from `hookData.length == 32 ? abi.decode(hookData, (address)) : sender` to: only a 32-byte payload decoding to a **nonzero** address declares a beneficiary; empty payloads, arbitrary-length payloads, and a 32-byte zero word all fall back to the direct swap caller. Behavior spec'd by `test_hookData_beneficiaryRules` (four sub-cases).
+- **Reasoning**: the old rule sent refunds to `address(0)` when a router forwarded a zeroed 32-byte payload — a silent burn. The direct-caller fallback is deterministic, never reverts mid-swap, and adds no trust assumption (still no allowlist; a router that deliberately declares a user keeps that power).
+- **Rejected alternative(s)**: reverting on zero declarations (breaks generic routers mid-swap for no security gain); an allowlist of beneficiary-declaring routers (banned by the product story).
+- **Task/session**: protocol-holes directive 4a, 2026-08-31.
 
 ### 2026-08-27 — overhaul: allowlist-free bond, 24 s window, trap-free history, PM-only callbacks
 - **Change**: (1) Bond charged via v4 hook-deltas — exact-in on the specified delta in `beforeSwap`, exact-out on the unspecified delta in `afterSwap` (input-side in both modes) — landing in the swap caller's own PoolManager delta; partial-fill overcharge returned in-swap. Router lock, `initializeRouter`, and deployer/tx.origin identity deleted; `MarkoutRouter` reduced to a one-arg convenience contract (deadline, exact-in min-out, exact-out max-in incl. bond, strict transfers, native, beneficiary declaration). (2) Window 21 s → **24 s** (two 12 s blocks): a 1:1 next-block reversion sits exactly at the 50% frontier and refunds — no overshoot. (3) Observation ring (64, prunable) → **append-only unbounded history with binary-searched `cumulativeAt`**: nothing is ever pruned, so pokes/swaps can never freeze escrow or change a verdict (`SettlementHistoryPruned` deleted). (4) Outcomes renumbered None/Refunded/RefundPending/Donated; `settle` **pays deliverable refunds immediately** (zero PM interaction — hook holds the bond tokens), `claimRefund` exists only for failed delivery. (5) `BaseHook` guards every external callback with `msg.sender == poolManager`.
@@ -65,7 +77,7 @@ Compiles (`forge build`, solc 0.8.26, cancun, via_ir, optimizer_runs 44444444). 
 - `via_ir = true` + `optimizer_runs = 44444444` are required (v4-core `Pool.swap` stack-too-deep otherwise) — and they push periphery PositionManager/PositionDescriptor past EIP-170, hence official-canonical seeding in `script/`.
 - v4 `getTickAtSqrtPrice` floors: an infinitesimal downward move reports tick −1; zero-impact tests must buy (upward) — see `test_zeroImpact_refunds`.
 - Solidity tuple destructuring must match component count exactly; `trades()` returns 11 components (the key tuple counts as one slot).
-- `settle`/`previewTrade` divide by `settleAfter − bondTime` (always 21); `cumulativeAt` reverts `SettlementHistoryPruned` when the ring (64 obs) no longer covers the window — honest refusal, not a wrong verdict.
+- `settle`/`previewTrade` divide by `settleAfter − bondTime` (always 24 s); the observation history is append-only and never pruned, so any open trade's window stays readable no matter how much churn follows — delayed settles produce the identical verdict (`test_delayedSettlement_matchesWindowClose`).
 - Native bonds: hook physically holds ETH after afterSwap `take`; the flush path must NOT `take` again (double-count leaves the hook short — found via a CurrencyNotSettled in the native test).
 - `receive()` gating means plain ETH transfers to the hook revert; only the PoolManager pays in.
-- Deployer identity for `initializeRouter`: `tx.origin` under the canonical CREATE2 proxy, `msg.sender` otherwise.
+- No router/deployer identity exists anywhere in the hook: any router swaps, the beneficiary comes only from a 32-byte nonzero `hookData` declaration, else the direct caller.

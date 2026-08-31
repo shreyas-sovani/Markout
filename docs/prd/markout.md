@@ -81,10 +81,10 @@ Uniswap v4 core ships no oracle, so the hook maintains one per pool:
 
 ## 7. Testing Strategy
 
-All logic verified via Foundry — 43/43 passing across four suites.
+All logic verified via Foundry — 48/48 passing across four suites.
 
 * **Engine (unit + fuzz):** 50% frontier boundaries in both directions, zero impact, overshoot, tiny fully-reverted swaps, large trades with noise, formula-vs-reference and monotonicity fuzzing.
-* **Integration + attack:** `test_bondPayable_genericRouter` (v4's own PoolSwapTest pays the bond), `test_bondPayable_attackerAuthoredRouter`, `test_fullReverseNextBlock_refunds` (1:1, no overshoot), `test_delayedSettlement_matchesWindowClose` (identical verdicts after 50 swaps + 200 pokes + 1 day), `test_hookCallbacks_rejectNonPoolManager`, `test_faucetMint_doesNotBreakEscrow`, `test_claimExistsOnlyWhenDeliveryFailed`, `test_noRouterLock_surface`, reentrancy-blocked claims, zero-liquidity donation deferral, native-currency end-to-end, exact-in/out slippage + deadline, window/replay guards, `SwapTooSmall`, spot-game immunity, `bondFor` quoting.
+* **Integration + attack:** `test_bondPayable_genericRouter` (v4's own PoolSwapTest pays the bond), `test_bondPayable_attackerAuthoredRouter`, `test_fullReverseNextBlock_refunds` (1:1, no overshoot), `test_delayedSettlement_matchesWindowClose` (identical verdicts after 50 swaps + 200 pokes + 1 day), `test_hookData_beneficiaryRules` (empty/junk/zero hookData fall back to the caller; only a nonzero 32-byte declaration is honored), `test_batchedSwaps_sameUnlock_preTicksNotClobbered` (two swaps, one unlock, one router: transient pre-tick keying holds), `test_atomicSandwich_sameBlock_frontLegRefunds_honestLimit` (the named, documented limit), `test_lpDividend_beatsVanillaSameFee` (hook LP ends ~the 20 bps bond ahead of a vanilla 3 bps LP after identical toxic flow), `test_hookCallbacks_rejectNonPoolManager`, `test_faucetMint_doesNotBreakEscrow`, `test_claimExistsOnlyWhenDeliveryFailed`, `test_noRouterLock_surface`, reentrancy-blocked claims, zero-liquidity donation deferral, native-currency end-to-end, exact-in/out slippage + deadline, window/replay guards, `SwapTooSmall`, spot-game immunity, `bondFor` quoting.
 * **Invariant fuzz (handler-based, 256 runs × 500 calls):** escrow coverage, liability identity, verdict immutability, bounded per-trade release.
 * **Canonical fork:** pool initialization and Permit2-funded liquidity through the **official Sepolia PositionManager**, exact-in and exact-out swaps, Refund-paid-at-settle, Donate + deferred flush — against the real canonical PoolManager state.
 
@@ -96,7 +96,7 @@ All logic verified via Foundry — 43/43 passing across four suites.
 | **TSK-02** | `MarkoutEngine` normalized reversion math | Done, unit + fuzz tested |
 | **TSK-03** | `MarkoutHook`: delta-charged bond, append-only oracle, terminal settlement | Done, integration tested |
 | **TSK-04** | `MarkoutRouter` convenience integrator + `FaucetToken` | Done |
-| **TSK-05** | Foundry suites (43/43 incl. fork + invariants) | Done |
+| **TSK-05** | Foundry suites (48/48 incl. fork + invariants) | Done |
 | **TSK-06** | Deploy to canonical Sepolia + Etherscan verification | Done |
 | **TSK-07** | LiveProofPack: real Refund-at-settle + Donate hashes | Done (README) |
 | **TSK-08** | Live browser UI (frontend/) against the deployment | Done |

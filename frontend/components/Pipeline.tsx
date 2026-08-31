@@ -3,11 +3,12 @@ import { Card } from "@/components/ui/card";
 const STAGES = [
   { label: "Connect", sub: "wallet" },
   { label: "Mint", sub: "demo tokens" },
+  { label: "LP", sub: "or skip" },
   { label: "Swap", sub: "bond posted" },
   { label: "Settle", sub: "verdict paid" },
 ];
 
-/** The four-stage app flow. `step` is the current active index (0-3). */
+/** The five-stage app flow. `step` is the current active index (0-4). */
 export function Pipeline({ step }: { step: number }) {
   return (
     <Card className="p-5">

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Seal } from "@/components/Brand";
-import { HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER } from "@/lib/contracts";
+import { APP_URL, HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER } from "@/lib/contracts";
 
 /**
  * Editorial multi-column footer matching the landing's bordered rhythm.
@@ -30,6 +30,7 @@ export function SiteFooter() {
             items={[
               ["App", "/app"],
               ["Docs", "/docs"],
+              ["Hosted · Vercel", APP_URL],
               ["GitHub", "https://github.com/shreyas-sovani/Markout"],
             ]}
           />

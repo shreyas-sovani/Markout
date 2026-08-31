@@ -878,6 +878,234 @@ contract MarkoutTest is Test {
         assertEq(address(hook).balance, 0, "hook escrow released");
         assertEq(hook.escrowLiability(CurrencyLibrary.ADDRESS_ZERO), 0, "native liability cleared");
     }
+
+    // ---------------------------------------------------------------------
+    // hookData beneficiary rules — no silent assignment, no burned refunds
+    // ---------------------------------------------------------------------
+
+    /// @dev Exactly one shape declares a beneficiary: 32 bytes holding a
+    /// nonzero address. Everything else — empty payload (generic routers),
+    /// arbitrary-length payloads other routers might forward, and a 32-byte
+    /// zero word — falls back to the direct swap caller. No revert mid-swap,
+    /// and no refund can ever be sent to address(0).
+    function test_hookData_beneficiaryRules() public {
+        // empty => the direct caller
+        vm.recordLogs();
+        vm.prank(alice);
+        genericRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -1e16, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            new bytes(0)
+        );
+        (address t1,,,,) = _trade(_bondedId());
+        assertEq(t1, address(genericRouter), "empty hookData => direct caller");
+
+        // junk length => direct caller, no revert
+        vm.recordLogs();
+        vm.prank(alice);
+        genericRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -1e16, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            hex"deadbeef"
+        );
+        (address t2,,,,) = _trade(_bondedId());
+        assertEq(t2, address(genericRouter), "non-32-byte hookData => direct caller, no revert");
+
+        // 32-byte zero => treated as undeclared, NOT address(0)
+        vm.recordLogs();
+        vm.prank(alice);
+        genericRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -1e16, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            abi.encode(address(0))
+        );
+        (address t3,,,,) = _trade(_bondedId());
+        assertEq(t3, address(genericRouter), "zero declaration => direct caller, refund can never burn");
+
+        // a real declaration is honored
+        vm.recordLogs();
+        vm.prank(alice);
+        genericRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -1e16, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            abi.encode(arber)
+        );
+        (address t4,,,,) = _trade(_bondedId());
+        assertEq(t4, arber, "32-byte nonzero declaration honored");
+    }
+
+    // ---------------------------------------------------------------------
+    // Two swaps by one router inside a single unlock — transient pre-tick
+    // passing must not clobber between the pairs
+    // ---------------------------------------------------------------------
+
+    /// @dev The pre-tick is carried from beforeSwap to afterSwap in a
+    /// transient slot keyed by (poolId, sender). A router that batches two
+    /// swaps into one unlock reuses the same slot back-to-back: the second
+    /// pair must still see the tick as of ITS OWN beforeSwap — the first
+    /// swap's post — and both trades must settle independently.
+    function test_batchedSwaps_sameUnlock_preTicksNotClobbered() public {
+        BatchRouter batch = new BatchRouter(address(manager));
+        MockERC20(Currency.unwrap(currency0)).mint(address(batch), 100e18);
+        MockERC20(Currency.unwrap(currency1)).mint(address(batch), 100e18);
+
+        vm.recordLogs();
+        batch.swapTwice(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -2e17, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            IPoolManager.SwapParams({
+                zeroForOne: false, amountSpecified: -4e17, sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            }),
+            alice
+        );
+
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bytes32[] memory ids = new bytes32[](2);
+        uint256 n;
+        for (uint256 i; i < entries.length; ++i) {
+            if (entries[i].topics[0] == SWAP_BONDED_TOPIC && entries[i].emitter == address(hook)) {
+                ids[n++] = entries[i].topics[1];
+            }
+        }
+        assertEq(n, 2, "two trades bonded in one unlock");
+
+        (int24 pre1, int24 post1) = _ticks(ids[0]);
+        (int24 pre2, int24 post2) = _ticks(ids[1]);
+        assertEq(pre1, 0, "first swap starts at the seed tick");
+        assertEq(pre2, post1, "second swap's pre MUST be the first swap's post: no tstore clobber");
+        assertLt(post1, 0, "zero-for-one buy moves the tick down (currency0 cheaper)");
+        assertGt(post2, 0, "the larger sell overshoots past the seed tick");
+
+        vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
+        hook.settle(ids[0]);
+        hook.settle(ids[1]);
+        (,,, MarkoutHook.Outcome o1,) = _trade(ids[0]);
+        (,,, MarkoutHook.Outcome o2,) = _trade(ids[1]);
+        assertEq(uint8(o1), uint8(MarkoutHook.Outcome.Refunded), "buy leg overshoot-reverted by the sell leg => refund");
+        assertEq(uint8(o2), uint8(MarkoutHook.Outcome.Donated), "sell leg's own impact sustained => donate");
+    }
+
+    // ---------------------------------------------------------------------
+    // The atomic-sandwich hole, named on-chain — honest limit
+    // ---------------------------------------------------------------------
+
+    /// @dev KNOWN, DOCUMENTED LIMIT. All three legs land in one block, so
+    /// they share one timestamp: the accumulator attributes no elapsed time
+    /// to any intra-block tick, and the window average therefore reads the
+    /// post-backrun tick — back at pre — for the whole 24 s. The front leg
+    /// refunds. A same-block rule that would separate it from the 1:1
+    /// NEXT-block organic refund does not exist in tick space (the two are
+    /// indistinguishable by window average alone), so this hook ships the
+    /// honest limit instead of a broken classifier: the backrun leg is what
+    /// donates, and the front leg's refund is bounded by its own bond.
+    /// Surface copy must keep saying this (docs, README, landing).
+    function test_atomicSandwich_sameBlock_frontLegRefunds_honestLimit() public {
+        vm.recordLogs();
+        _swap(arber, true, -3e17); // front run: buy
+        bytes32 front = _bondedId();
+        _swap(alice, true, -1e17); // victim: buys the moved price
+        bytes32 victim = _bondedId();
+        _swap(arber, false, -4e17); // backrun: sell front+victim, price returns to pre
+        bytes32 backrun = _bondedId();
+
+        vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
+        hook.settle(front);
+        hook.settle(victim);
+        hook.settle(backrun);
+
+        (,,, MarkoutHook.Outcome oFront,) = _trade(front);
+        (,,, MarkoutHook.Outcome oVictim,) = _trade(victim);
+        (,,, MarkoutHook.Outcome oBack,) = _trade(backrun);
+        assertEq(uint8(oFront), uint8(MarkoutHook.Outcome.Refunded), "HONEST LIMIT: atomic front leg refunds");
+        assertEq(uint8(oVictim), uint8(MarkoutHook.Outcome.Refunded), "victim refunds too: same-block reversion");
+        assertEq(uint8(oBack), uint8(MarkoutHook.Outcome.Donated), "the backrun leg is what donates");
+    }
+
+    // ---------------------------------------------------------------------
+    // LP PnL: what a sustained toxic move actually pays in-range LPs,
+    // measured against a vanilla pool at the same 3 bps fee
+    // ---------------------------------------------------------------------
+
+    /// @dev Identical liquidity (this contract is the LP), identical toxic
+    /// swap, one pool with the hook and one vanilla pool at the same 3 bps.
+    /// After the verdict is donated and flushed, both LP positions are
+    /// withdrawn and compared. The hook LP must end up ahead by
+    /// approximately the forfeited bond — the dividend is 20 bps of the
+    /// toxic input, no more. Note the bond rides the specified delta, so
+    /// the pool itself executes on input minus bond; the dividend reaches
+    /// LPs only through the flush, across both tokens. The site may not
+    /// claim solvency beyond that number.
+    function test_lpDividend_beatsVanillaSameFee() public {
+        // Vanilla control pool: same pair, same fee, no hook.
+        PoolKey memory vanilla = PoolKey({
+            currency0: currency0, currency1: currency1, fee: FEE, tickSpacing: TICK_SPACING, hooks: IHooks(address(0))
+        });
+        manager.initialize(vanilla, SQRT_PRICE_1_1);
+        _seedLiquidity(vanilla, 1e18);
+
+        // Vanilla: one toxic 2e16 swap (kept small relative to liquidity so
+        // both pools exit within a couple of ticks and the 1:1 token sum
+        // below is a faithful valuation).
+        vm.prank(alice);
+        genericRouter.swap(
+            vanilla,
+            IPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -2e16, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            new bytes(0)
+        );
+
+        // Hook pool: the same toxic swap, window closes, bond donated + flushed.
+        vm.recordLogs();
+        _swap(alice, true, -2e16);
+        bytes32 tradeId = _bondedId();
+        (, uint256 bond,,,) = _trade(tradeId);
+        vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
+        hook.settle(tradeId);
+        hook.flushDonation(key.toId());
+
+        // Withdraw both LP positions; this contract holds both.
+        IPoolManager.ModifyLiquidityParams memory exit = IPoolManager.ModifyLiquidityParams({
+            tickLower: TickMath.minUsableTick(TICK_SPACING),
+            tickUpper: TickMath.maxUsableTick(TICK_SPACING),
+            liquidityDelta: -1e18,
+            salt: bytes32(0)
+        });
+        uint256 vb0 = currency0.balanceOf(address(this));
+        uint256 vb1 = currency1.balanceOf(address(this));
+        lpRouter.modifyLiquidity(vanilla, exit, new bytes(0));
+        uint256 vGain0 = currency0.balanceOf(address(this)) - vb0;
+        uint256 vGain1 = currency1.balanceOf(address(this)) - vb1;
+
+        uint256 hb0 = currency0.balanceOf(address(this));
+        uint256 hb1 = currency1.balanceOf(address(this));
+        lpRouter.modifyLiquidity(key, exit, new bytes(0));
+        uint256 hGain0 = currency0.balanceOf(address(this)) - hb0;
+        uint256 hGain1 = currency1.balanceOf(address(this)) - hb1;
+
+        // Both pools sit within a few ticks of each other at exit, so the
+        // two-token sums are directly comparable at this precision.
+        int256 net0 = int256(hGain0) - int256(vGain0);
+        int256 net1 = int256(hGain1) - int256(vGain1);
+        int256 dividend = net0 + net1;
+        assertGt(dividend, 0, "hook LP must end ahead of the vanilla LP");
+        assertApproxEqAbs(dividend, int256(bond), 5e12, "the dividend is ~the 20 bps bond: no magic extra");
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -934,6 +1162,58 @@ contract FakeRouter {
             manager.settle();
         } else if (d1 > 0) {
             manager.take(key.currency1, payer, uint256(d1));
+        }
+        return "";
+    }
+}
+
+/// @dev A router that batches two swaps into ONE unlock — the transient
+/// pre-tick slot (keyed by poolId+sender) is written and consumed twice
+/// back-to-back inside the same transaction. Proves the per-pair keying
+/// survives batched flow; settles its combined delta like any v4 router.
+contract BatchRouter {
+    using TransientStateLibrary for IPoolManager;
+
+    IPoolManager public manager;
+
+    constructor(address m) {
+        manager = IPoolManager(m);
+    }
+
+    function swapTwice(
+        PoolKey memory key,
+        IPoolManager.SwapParams memory p1,
+        IPoolManager.SwapParams memory p2,
+        address beneficiary
+    ) external {
+        manager.unlock(abi.encode(key, p1, p2, beneficiary));
+    }
+
+    function unlockCallback(bytes calldata rawData) external returns (bytes memory) {
+        require(msg.sender == address(manager), "not PM");
+        (
+            PoolKey memory key,
+            IPoolManager.SwapParams memory p1,
+            IPoolManager.SwapParams memory p2,
+            address beneficiary
+        ) = abi.decode(rawData, (PoolKey, IPoolManager.SwapParams, IPoolManager.SwapParams, address));
+        manager.swap(key, p1, abi.encode(beneficiary));
+        manager.swap(key, p2, abi.encode(beneficiary));
+        int256 d0 = manager.currencyDelta(address(this), key.currency0);
+        int256 d1 = manager.currencyDelta(address(this), key.currency1);
+        if (d0 < 0) {
+            manager.sync(key.currency0);
+            MockERC20(Currency.unwrap(key.currency0)).transfer(address(manager), uint256(-d0));
+            manager.settle();
+        } else if (d0 > 0) {
+            manager.take(key.currency0, beneficiary, uint256(d0));
+        }
+        if (d1 < 0) {
+            manager.sync(key.currency1);
+            MockERC20(Currency.unwrap(key.currency1)).transfer(address(manager), uint256(-d1));
+            manager.settle();
+        } else if (d1 > 0) {
+            manager.take(key.currency1, beneficiary, uint256(d1));
         }
         return "";
     }

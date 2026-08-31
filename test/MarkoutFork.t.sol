@@ -218,6 +218,59 @@ contract MarkoutForkTest is Test {
         assertEq(token0.balanceOf(address(hook)), bond, "escrow matches bond");
     }
 
+    /// @dev The frontend's remove path, proven against canonical periphery:
+    /// DECREASE_LIQUIDITY + CLOSE_CURRENCY x2 + TAKE_PAIR in one
+    /// modifyLiquidities call, withdrawing principal to the owner.
+    function test_canonical_removeLiquidity_decreaseCloseTake() public {
+        // Mint a second full-range position as alice through PosM + Permit2.
+        token0.mint(alice, 2_000e18);
+        token1.mint(alice, 2_000e18);
+        vm.startPrank(alice);
+        token0.approve(address(PERMIT2), type(uint256).max);
+        token1.approve(address(PERMIT2), type(uint256).max);
+        PERMIT2.approve(address(token0), address(posMgr), type(uint160).max, type(uint48).max);
+        PERMIT2.approve(address(token1), address(posMgr), type(uint160).max, type(uint48).max);
+
+        uint256 aliceTokenId = posMgr.nextTokenId();
+        {
+            bytes memory actions = abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR));
+            bytes[] memory params = new bytes[](2);
+            params[0] = abi.encode(
+                key,
+                TickMath.minUsableTick(60),
+                TickMath.maxUsableTick(60),
+                5e17,
+                1_000e18,
+                1_000e18,
+                alice,
+                new bytes(0)
+            );
+            params[1] = abi.encode(key.currency0, key.currency1);
+            posMgr.modifyLiquidities(abi.encode(actions, params), block.timestamp + 1_000);
+        }
+        assertEq(posMgr.ownerOf(aliceTokenId), alice, "position minted to alice");
+
+        // Remove it entirely: DECREASE + CLOSE both currencies + TAKE_PAIR.
+        uint256 b0 = token0.balanceOf(alice);
+        uint256 b1 = token1.balanceOf(alice);
+        {
+            bytes memory actions = abi.encodePacked(
+                uint8(Actions.DECREASE_LIQUIDITY),
+                uint8(Actions.CLOSE_CURRENCY),
+                uint8(Actions.CLOSE_CURRENCY),
+                uint8(Actions.TAKE_PAIR)
+            );
+            bytes[] memory params = new bytes[](4);
+            params[0] = abi.encode(aliceTokenId, uint256(5e17), uint128(0), uint128(0), new bytes(0));
+            params[1] = abi.encode(key.currency0);
+            params[2] = abi.encode(key.currency1);
+            params[3] = abi.encode(key.currency0, key.currency1, alice);
+            posMgr.modifyLiquidities(abi.encode(actions, params), block.timestamp + 1_000);
+        }
+        assertGt(token0.balanceOf(alice), b0, "token0 principal returned");
+        assertGt(token1.balanceOf(alice), b1, "token1 principal returned");
+    }
+
     function _t(bytes32 id) internal view returns (address trader, uint256 bond, int24 preTick, int24 postTick) {
         (, address t,, uint256 b, int24 pre, int24 post,,,,,) = hook.trades(id);
         return (t, b, pre, post);

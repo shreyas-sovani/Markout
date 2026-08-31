@@ -150,8 +150,16 @@ export default function Docs() {
               <code>MarkoutRouter</code> is convenience, not a gate — it adds a deadline, exact-in
               minimum output, exact-out maximum input (bond included), strict transfer checks, and
               native support, and declares the human beneficiary in <code>hookData</code> so
-              refunds route to the end user. A router that declares no one simply receives its own
-              refunds.
+              refunds route to the end user.
+            </p>
+            <p>
+              The beneficiary rule is exact: only a 32-byte <code>hookData</code> holding a{" "}
+              <strong>nonzero</strong> address declares a beneficiary. Empty payloads,
+              arbitrary-length payloads, and a zeroed 32-byte word all fall back to the direct
+              swap caller — no revert mid-swap, and no refund can ever be sent to{" "}
+              <code>address(0)</code>. <strong>Universal Router integrators: pass exactly{" "}
+              <code>abi.encode(endUser)</code></strong> as <code>hookData</code>; a router that
+              declares nothing receives its own refunds.
             </p>
             <Formula>
               swapDelta(caller) = poolDelta − hookDelta(bond) · settle your delta, that&apos;s it
@@ -172,18 +180,26 @@ export default function Docs() {
               What the oracle honestly does not catch: slow trend flow that never reverts
               in-window, the front leg of an atomic sandwich (the backrun&apos;s reversion refunds
               it — the backrun leg is what donates), and donations go to whoever is in range at
-              flush, not the specific LPs who carried the inventory.
+              flush, not the specific LPs who carried the inventory. The 20 bps bond is a
+              deterrent tax on one-shot toxicity, not an LVR hedge — and settle is a
+              transaction someone must send: permissionless, never automatic.
             </Callout>
           </section>
 
           <section id="try">
             <h2>Try it</h2>
             <p>
-              The <Link href="/app" className="text-brand underline-offset-2 hover:underline">app</Link>{" "}
+              Hosted at{" "}
+              <a href="https://markout-nine.vercel.app" className="text-brand underline-offset-2 hover:underline" target="_blank" rel="noopener noreferrer">
+                markout-nine.vercel.app
+              </a>{" "}
+              — best in Chrome desktop with MetaMask (or any injected wallet) on Sepolia. The{" "}
+              <Link href="/app" className="text-brand underline-offset-2 hover:underline">app</Link>{" "}
               runs the whole loop against the live deployment, with one-click deterministic demos
-              for both verdicts. The terminal runbook in <code>demo.md</code> is copy-pasteable on
-              the current ABI — including the pre-signed back-to-back swap pair that lands the
-              reversion one block after the buy.
+              for both verdicts; the landing page streams the live tape with no wallet at all.
+              The terminal runbook in <code>demo.md</code> is copy-pasteable on the current ABI —
+              including the pre-signed back-to-back swap pair that lands the reversion one block
+              after the buy. Demo video: coming, human-recorded.
             </p>
           </section>
         </article>

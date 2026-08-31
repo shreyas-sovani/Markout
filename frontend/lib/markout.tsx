@@ -14,7 +14,9 @@ import {
   parseAbiItem,
   parseEther,
   decodeEventLog,
+  encodeAbiParameters,
   formatEther,
+  parseAbiParameters,
   type Hash,
   type Address,
 } from "viem";
@@ -23,17 +25,25 @@ import { toast as sonnerToast } from "sonner";
 import {
   BOND_BPS,
   ERC20_ABI,
+  ERC721_TRANSFER_TOPIC,
   HOOK,
   HOOK_ABI,
+  LIQUIDITY_SLOT,
   MAX_SQRT_PRICE,
   MIN_SQRT_PRICE,
+  PERMIT2,
+  PERMIT2_ABI,
   POOL_ID,
   POOL_KEY,
   POOL_MANAGER,
   POOL_MANAGER_ABI,
+  POSM_ABI,
+  POSITION_MANAGER,
+  positionLiquiditySlot,
+  TICK_BOUND_LOWER,
+  TICK_BOUND_UPPER,
   ROUTER,
   ROUTER_ABI,
-  SETTLEMENT_DELAY,
   SLOT0_SLOT,
   SWAP_FEE_BPS,
   TOKEN0,
@@ -42,6 +52,7 @@ import {
   explorerTx,
   formatTokens,
   getLogsChunked,
+  liquidityForAmounts,
   publicClient,
   sqrtX96ToPrice,
   walletClientFrom,
@@ -80,10 +91,21 @@ export interface MarkoutState {
   // live pool
   price: number | null;
   liveTick: number | null;
+  sqrtX96: bigint | null;
   chainNow: bigint;
   rpcOk: boolean;
   trace: { t: number; tick: number }[];
   traction: { events: number; a0: bigint; a1: bigint } | null;
+  // LP seat
+  poolLiquidity: bigint | null;
+  pending0: bigint | null;
+  pending1: bigint | null;
+  // personal LP position (official PositionManager, Permit2-funded)
+  lpTokenId: bigint | null;
+  lpLiquidity: bigint | null;
+  lpBusy: string | null;
+  onLpAdd: (amount0: bigint, amount1: bigint) => Promise<void>;
+  onLpRemoveAll: () => Promise<void>;
   // balances
   sellBal: bigint | undefined;
   buyBal: bigint | undefined;
@@ -153,6 +175,7 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
   // ---- live pool state ----
   const [price, setPrice] = useState<number | null>(null);
   const [liveTick, setLiveTick] = useState<number | null>(null);
+  const [sqrtX96, setSqrtX96] = useState<bigint | null>(null);
   const [chainBlockNow, setChainBlockNow] = useState<bigint>(0n); // raw block timestamp
   const [chainNow, setChainNow] = useState<bigint>(0n); // smoothed, ticks every 250 ms
   const chainSyncWall = useRef(0);
@@ -177,6 +200,7 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
         if (alive) {
           setPrice(sqrtX96ToPrice(sqrt));
           setLiveTick(Number(signed));
+          setSqrtX96(sqrt);
           setRpcOk(true);
         }
       } catch {
@@ -329,6 +353,101 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
   const sellBal = (zeroForOne ? bal0.data : bal1.data) as bigint | undefined;
   const buyBal = (zeroForOne ? bal1.data : bal0.data) as bigint | undefined;
   const allowanceVal = allowancePoll.data as bigint | undefined;
+
+  // ---- LP seat: in-range liquidity + the pending dividend bucket ----
+  const liqPoll = usePoll(
+    async () => {
+      const raw = (await publicClient.readContract({
+        address: POOL_MANAGER,
+        abi: POOL_MANAGER_ABI,
+        functionName: "extsload",
+        args: [LIQUIDITY_SLOT],
+      })) as `0x${string}`;
+      return BigInt(raw);
+    },
+    [],
+    8000,
+  );
+  const pendingPoll = usePoll(
+    async () => {
+      const r = (await publicClient.multicall({
+        contracts: [
+          {
+            address: HOOK,
+            abi: HOOK_ABI,
+            functionName: "pendingDonation",
+            args: [POOL_ID, 0],
+          },
+          {
+            address: HOOK,
+            abi: HOOK_ABI,
+            functionName: "pendingDonation",
+            args: [POOL_ID, 1],
+          },
+        ],
+        allowFailure: false,
+      })) as unknown as bigint[];
+      return { p0: r[0], p1: r[1] };
+    },
+    [],
+    8000,
+  );
+  const poolLiquidity = (liqPoll.data as bigint | undefined) ?? null;
+  const pending0 = pendingPoll.data ? (pendingPoll.data as { p0: bigint; p1: bigint }).p0 : null;
+  const pending1 = pendingPoll.data ? (pendingPoll.data as { p0: bigint; p1: bigint }).p1 : null;
+
+  // ---- personal LP position via official PositionManager + Permit2 ----
+  const [lpTokenId, setLpTokenId] = useState<bigint | null>(null);
+  const [lpLiquidity, setLpLiquidity] = useState<bigint | null>(null);
+  const [lpBusy, setLpBusy] = useState<string | null>(null);
+
+  // The PositionManager mints an ERC-721 per position; we persist our own
+  // tokenId (per wallet) — the on-chain liquidity read validates it.
+  useEffect(() => {
+    if (!address) {
+      setLpTokenId(null);
+      setLpLiquidity(null);
+      return;
+    }
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(`markout:lpTokenId:${address.toLowerCase()}`) : null;
+    setLpTokenId(raw ? BigInt(raw) : null);
+  }, [address]);
+
+  useEffect(() => {
+    if (!address || lpTokenId === null) {
+      setLpLiquidity(null);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const owner = (await publicClient.readContract({
+          address: POSITION_MANAGER,
+          abi: POSM_ABI,
+          functionName: "ownerOf",
+          args: [lpTokenId],
+        })) as string;
+        if (owner.toLowerCase() !== address.toLowerCase()) {
+          if (alive) setLpLiquidity(0n);
+          return;
+        }
+        const word = BigInt(
+          (await publicClient.readContract({
+            address: POOL_MANAGER,
+            abi: POOL_MANAGER_ABI,
+            functionName: "extsload",
+            args: [positionLiquiditySlot(address, lpTokenId)],
+          })) as `0x${string}`,
+        );
+        if (alive) setLpLiquidity(word & ((1n << 128n) - 1n));
+      } catch {
+        if (alive) setLpLiquidity(0n);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [address, lpTokenId, tradesVersion]);
 
   // ---- derived ----
   const amountIn = useMemo(() => {
@@ -495,8 +614,10 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     bal0.refresh();
     bal1.refresh();
     allowancePoll.refresh();
+    liqPoll.refresh();
+    pendingPoll.refresh();
     setTradesVersion((v) => v + 1);
-  }, [bal0, bal1, allowancePoll]);
+  }, [bal0, bal1, allowancePoll, liqPoll, pendingPoll]);
 
   const simulate = async (call: {
     address: `0x${string}`;
@@ -604,7 +725,12 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
       amount: bigint,
       dir: boolean,
       minAmountOut: bigint,
-    ): Promise<{ tradeId: `0x${string}`; hash: Hash }> => {
+    ): Promise<{
+      tradeId: `0x${string}`;
+      hash: Hash;
+      settleAfter: bigint;
+      blockNumber: bigint;
+    }> => {
       if (!address) throw new Error("connect first");
       const wallet = walletClientFrom(getEthereum());
       const args = [
@@ -639,7 +765,20 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
         data: log.data,
         topics: log.topics as never,
       }) as unknown as { args: { tradeId: `0x${string}` } };
-      return { tradeId: d.args.tradeId, hash: h };
+      // The trade's own settleAfter from storage — the demo clock is chain
+      // time, never wall clock.
+      const t = (await publicClient.readContract({
+        address: HOOK,
+        abi: HOOK_ABI,
+        functionName: "trades",
+        args: [d.args.tradeId],
+      })) as unknown as { settleAfter: bigint | number };
+      return {
+        tradeId: d.args.tradeId,
+        hash: h,
+        settleAfter: BigInt(t.settleAfter),
+        blockNumber: rc.blockNumber,
+      };
     },
     [address],
   );
@@ -777,6 +916,185 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     }
   }, [address, refreshAll]);
 
+  // Full-range MINT_POSITION + SETTLE_PAIR on the official PositionManager —
+  // exact encodings from the canonical fork suite / deploy script era.
+  const MINT_ACTIONS = "0x020d"; // Actions.MINT_POSITION, Actions.SETTLE_PAIR
+  const MINT_PARAMS = parseAbiParameters(
+    "(address,address,uint24,int24,address),int24,int24,uint256,uint128,uint128,address,bytes",
+  );
+  const SETTLE_PAIR_PARAMS = parseAbiParameters("address,address");
+  // PosM decodes liquidity as uint256 and negates internally — pass positive.
+  const DECREASE_PARAMS = parseAbiParameters("uint256,uint256,uint128,uint128,bytes");
+  const CLOSE_PARAMS = parseAbiParameters("address");
+  const TAKE_PARAMS = parseAbiParameters("address,address,address");
+  const LIQ_DATA_PARAMS = parseAbiParameters("bytes,bytes[]");
+
+  const modifyLiquiditiesTx = useCallback(
+    async (actions: `0x${string}`, params: `0x${string}`[]): Promise<`0x${string}`> => {
+      if (!address) throw new Error("connect first");
+      const wallet = walletClientFrom(getEthereum());
+      const data = encodeAbiParameters(LIQ_DATA_PARAMS, [actions, params]);
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+      await simulate({
+        address: POSITION_MANAGER,
+        abi: POSM_ABI as never,
+        functionName: "modifyLiquidities",
+        args: [data, deadline],
+        account: address,
+      });
+      return wallet.writeContract({
+        address: POSITION_MANAGER,
+        abi: POSM_ABI,
+        functionName: "modifyLiquidities",
+        args: [data, deadline],
+        account: address,
+      });
+    },
+    [address],
+  );
+
+  const onLpAdd = useCallback(
+    async (amount0: bigint, amount1: bigint) => {
+      if (!address) return;
+      if (sqrtX96 === null) {
+        sonnerToast.error("Live pool price not loaded yet — retry in a moment.");
+        return;
+      }
+      const wallet = walletClientFrom(getEthereum());
+      setLpBusy("setup");
+      try {
+        const needed: [`0x${string}`, bigint][] = [
+          [TOKEN0, amount0],
+          [TOKEN1, amount1],
+        ];
+        for (let i = 0; i < needed.length; i++) {
+          const [token, amt] = needed[i];
+          // 1. ERC20 -> Permit2, exact amount only.
+          const erc20Allowance = (await publicClient.readContract({
+            address: token as `0x${string}`,
+            abi: ERC20_ABI,
+            functionName: "allowance",
+            args: [address, PERMIT2],
+          })) as bigint;
+          if (erc20Allowance < amt) {
+            setLpBusy(`approve-${i}`);
+            await simulate({
+              address: token as `0x${string}`,
+              abi: ERC20_ABI as never,
+              functionName: "approve",
+              args: [PERMIT2, amt],
+              account: address,
+            });
+            const h = await wallet.writeContract({
+              address: token as `0x${string}`,
+              abi: ERC20_ABI,
+              functionName: "approve",
+              args: [PERMIT2, amt],
+              account: address,
+            });
+            await publicClient.waitForTransactionReceipt({ hash: h });
+          }
+          // 2. Permit2 -> PositionManager, exact amount, 1 h expiry.
+          const p2 = (await publicClient.readContract({
+            address: PERMIT2,
+            abi: PERMIT2_ABI,
+            functionName: "allowance",
+            args: [address, token as `0x${string}`, POSITION_MANAGER],
+          })) as unknown as { amount: bigint; expiration: bigint };
+          const now = BigInt(Math.floor(Date.now() / 1000));
+          if (p2.amount < amt || p2.expiration < now + 60n) {
+            setLpBusy(`permit2-${i}`);
+            await simulate({
+              address: PERMIT2,
+              abi: PERMIT2_ABI as never,
+              functionName: "approve",
+              args: [token, POSITION_MANAGER, amt, now + 3600n],
+              account: address,
+            });
+            const h = await wallet.writeContract({
+              address: PERMIT2,
+              abi: PERMIT2_ABI,
+              functionName: "approve",
+              args: [token, POSITION_MANAGER, amt, now + 3600n] as never,
+              account: address,
+            });
+            await publicClient.waitForTransactionReceipt({ hash: h });
+          }
+        }
+
+        setLpBusy("mint");
+        const liquidity = liquidityForAmounts(sqrtX96, amount0, amount1);
+        if (liquidity === 0n) {
+          sonnerToast.error("Amounts too small to mint liquidity.");
+          return;
+        }
+        const params: `0x${string}`[] = [
+          encodeAbiParameters(
+            MINT_PARAMS,
+            [
+              [TOKEN0, TOKEN1, POOL_KEY.fee, POOL_KEY.tickSpacing, POOL_KEY.hooks],
+              TICK_BOUND_LOWER,
+              TICK_BOUND_UPPER,
+              liquidity,
+              amount0,
+              amount1,
+              address,
+              "0x",
+            ] as never,
+          ),
+          encodeAbiParameters(SETTLE_PAIR_PARAMS, [TOKEN0, TOKEN1]),
+        ];
+        const h = await modifyLiquiditiesTx(MINT_ACTIONS as `0x${string}`, params);
+        const rc = await publicClient.waitForTransactionReceipt({ hash: h });
+        const transfer = rc.logs.find(
+          (l) =>
+            l.address.toLowerCase() === POSITION_MANAGER.toLowerCase() &&
+            l.topics[0] === ERC721_TRANSFER_TOPIC &&
+            l.topics[1] ===
+              "0x0000000000000000000000000000000000000000000000000000000000000000",
+        );
+        if (!transfer || !transfer.topics[3]) throw new Error("no position minted");
+        const tokenId = BigInt(transfer.topics[3]);
+        window.localStorage.setItem(`markout:lpTokenId:${address.toLowerCase()}`, tokenId.toString());
+        setLpTokenId(tokenId);
+        sonnerToast.success(
+          "Full-range position minted through the official PositionManager — you are now an LP in this pool.",
+          { action: { label: "tx", onClick: () => window.open(explorerTx(h), "_blank") } },
+        );
+        refreshAll();
+      } catch (e) {
+        sonnerToast.error(`LP add failed: ${revertReason(e)}`);
+      } finally {
+        setLpBusy(null);
+      }
+    },
+    [address, sqrtX96, modifyLiquiditiesTx, refreshAll],
+  );
+
+  const onLpRemoveAll = useCallback(async () => {
+    if (!address || lpTokenId === null || lpLiquidity === null || lpLiquidity === 0n) return;
+    setLpBusy("remove");
+    try {
+      const actions = "0x01121211"; // DECREASE, CLOSE cur0, CLOSE cur1, TAKE_PAIR
+      const params: `0x${string}`[] = [
+        encodeAbiParameters(DECREASE_PARAMS, [lpTokenId, lpLiquidity, 0n, 0n, "0x"] as never),
+        encodeAbiParameters(CLOSE_PARAMS, [TOKEN0]),
+        encodeAbiParameters(CLOSE_PARAMS, [TOKEN1]),
+        encodeAbiParameters(TAKE_PARAMS, [TOKEN0, TOKEN1, address]),
+      ];
+      const h = await modifyLiquiditiesTx(actions as `0x${string}`, params);
+      await publicClient.waitForTransactionReceipt({ hash: h });
+      sonnerToast.success("Liquidity removed and tokens returned to your wallet.", {
+        action: { label: "tx", onClick: () => window.open(explorerTx(h), "_blank") } },
+      );
+      refreshAll();
+    } catch (e) {
+      sonnerToast.error(`LP remove failed: ${revertReason(e)}`);
+    } finally {
+      setLpBusy(null);
+    }
+  }, [address, lpTokenId, lpLiquidity, modifyLiquiditiesTx, refreshAll]);
+
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   const waitWindow = async (settleAfter: bigint) => {
@@ -824,12 +1142,21 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
       const first = await doSwapTx(DEMO_BUY, true, 0n);
       setActiveId(first.tradeId);
 
-      sonnerToast.info("DEMO 2/5 — arbitrageur fully reverses 1:1 in the next block…");
-      await sleep(1500);
-      await doSwapTx(DEMO_REVERSE, false, 0n);
+      // The first swap is already mined (we hold its receipt), so publishing
+      // the reverse immediately usually lands it in the NEXT block. Verify
+      // the landing and say the truth when MetaMask/the mempool was slow —
+      // the verdict itself is decided by the window, never by this copy.
+      sonnerToast.info("DEMO 2/5 — reversing 1:1 into the next block…");
+      const second = await doSwapTx(DEMO_REVERSE, false, 0n);
+      if (second.blockNumber > first.blockNumber + 1n) {
+        sonnerToast.warning(
+          `Heads up: the reverse landed ${second.blockNumber - first.blockNumber} blocks after the buy, not the next block. ` +
+            "The classifier judges the actual window — this run may not be the canonical 1:1 next-block refund.",
+        );
+      }
 
-      sonnerToast.info("DEMO 3/5 — waiting out the fixed 24 s window…");
-      await waitWindow(BigInt(Math.floor(Date.now() / 1000)) + BigInt(SETTLEMENT_DELAY) + 2n);
+      sonnerToast.info("DEMO 3/5 — waiting out the fixed 24 s window (chain time)…");
+      await waitWindow(first.settleAfter + 1n);
 
       sonnerToast.info("DEMO 4/5 — settling…");
       const outcome = await onSettle(first.tradeId);
@@ -853,15 +1180,27 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     setPilot("donate");
     setBusy("demo");
     try {
+      if ((sellBal ?? 0n) < DEMO_BUY + (DEMO_BUY * BOND_BPS) / 10000n) {
+        sonnerToast.error("Need ~1.02 MDA for the demo — mint first.");
+        return;
+      }
       sonnerToast.info("DEMO 1/4 — single-shot swap, no reversion behind it…");
       const first = await doSwapTx(DEMO_BUY, true, 0n);
       setActiveId(first.tradeId);
 
-      sonnerToast.info("DEMO 2/4 — waiting out the fixed 24 s window…");
-      await waitWindow(BigInt(Math.floor(Date.now() / 1000)) + BigInt(SETTLEMENT_DELAY) + 2n);
+      sonnerToast.info("DEMO 2/4 — waiting out the fixed 24 s window (chain time)…");
+      await waitWindow(first.settleAfter + 1n);
 
       sonnerToast.info("DEMO 3/4 — settling (expect DONATE)…");
-      await onSettle(first.tradeId);
+      const outcome = await onSettle(first.tradeId);
+      if (outcome !== 3) {
+        sonnerToast.warning(
+          outcome === 1 || outcome === 2
+            ? "Not a donate this run — someone else's flow moved the pool back inside the window. Skipping the flush; nothing was donated."
+            : "Settle did not record a donate — skipping the flush.",
+        );
+        return;
+      }
 
       sonnerToast.info("DEMO 4/4 — flushing the LP donation…");
       await onFlush();
@@ -871,7 +1210,7 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
       setPilot(null);
       setBusy(null);
     }
-  }, [address, doSwapTx, onSettle, onFlush]);
+  }, [address, sellBal, doSwapTx, onSettle, onFlush]);
 
   const wrongChain = address !== undefined && chainId !== 11155111;
 
@@ -889,6 +1228,15 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     rpcOk,
     trace,
     traction,
+    poolLiquidity,
+    pending0,
+    pending1,
+    sqrtX96,
+    lpTokenId,
+    lpLiquidity,
+    lpBusy,
+    onLpAdd,
+    onLpRemoveAll,
     sellBal,
     buyBal,
     allowanceVal,

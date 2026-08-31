@@ -14,13 +14,13 @@ Operator EOA holds faucet tokens and has approved the router. Addresses in READM
 ## Constants
 
 ```bash
-HOOK=0x027C6cfD540f0446641846cd004b41561EEd70cC
-ROUTER=0x41Fd0B2B581C5F59d468D272dbfcc26e595383CF
+HOOK=0x6432C6e932809499D4Ec267CC41FBE2AEFBa70CC
+ROUTER=0x46415Ef59235f7Abd989E76a2A4952d02A22365e
 PM=0xE03A1074c86CFeDd5C142C4F04F1a1536e203543   # canonical PoolManager
-T0=0x7B0B6aF2271Cb2f7500365f5a80dB18F9666c315   # MDA
-T1=0xf3df97cf05D6eFc92cF211440381586b8B86eD76   # MDB
-K="(0x7b0b6af2271cb2f7500365f5a80db18f9666c315,0xf3df97cf05d6efc92cf211440381586b8b86ed76,300,60,0x027c6cfd540f0446641846cd004b41561eed70cc)"
-POOL_ID=0x9e96a56f2809fdcbfc05649349d50d3faad51f4b5da6cdb14ce58f602324ed1c
+T0=0x313edAdBF16371068c6b6C6Da89eCe18C6f1B2a4   # MDA (currency0)
+T1=0xA73AEC48FC2A73031e6Cc2c708Dc4a2a9aC86816   # MDB
+K="(0x313edadbf16371068c6b6c6da89ece18c6f1b2a4,0xa73aec48fc2a73031e6cc2c708dc4a2a9ac86816,300,60,0x6432c6e932809499d4ec267cc41fbe2aefba70cc)"
+POOL_ID=0x8a6c41ea819c6378285108c317240a8d2dbe24a9f3b8f747045b19a52e5acefd
 MAX=0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 DL=$(($(date +%s)+3600))
 ```
@@ -61,7 +61,9 @@ cast publish --rpc-url $SEP $TX1 >/dev/null && cast publish --rpc-url $SEP $TX2 
 ```
 
 Grab the first trade id from the buy receipt's `SwapBonded` topic1, wait out
-the window, then anyone settles:
+the window, then anyone settles. The gate is chain time — `settle` reverts
+`SettlementWindowOpen` until `block.timestamp >= trade.settleAfter` — so a
+30 s wall sleep then retry-on-revert is fine:
 
 ```bash
 BUY=<buy-tx-hash>
@@ -155,7 +157,7 @@ cast call $HOOK "pendingDonation(bytes32,uint8)(uint256)" $POOL_ID 0 --rpc-url $
    publishes (`cast mktx --gas-limit 2000000` + explicit nonces) — sequential
    `cast send` calls land 2-3 blocks apart, and under-set mktx gas reverts
    OutOfGas.
-3. **Pool currency ordering.** currency0 = `0x7B0B…` (numerically smaller).
+3. **Pool currency ordering.** currency0 = `0x313e…` (numerically smaller).
 4. **Price limits can't be zero.** Buy → `4295128740` (MIN+1); sell →
    `1461446703485210103287273052203988822378723970340` (MAX−1).
 5. **Settlement before 24 s reverts** `SettlementWindowOpen` — by design.
