@@ -10,6 +10,7 @@ import { NetworkBanner } from "@/components/NetworkBanner";
 import { MemoryTape } from "@/components/MemoryTape";
 import { LpSeat } from "@/components/LpSeat";
 import { LpPanel } from "@/components/LpPanel";
+import { BatchPanel } from "@/components/BatchPanel";
 import { useMarkout } from "@/lib/markout";
 import { formatTokens, TOKEN0, TOKEN1 } from "@/lib/contracts";
 import { Button } from "@/components/ui/button";
@@ -67,9 +68,10 @@ export default function AppPage() {
             The memory console
           </h1>
           <p className="mt-2 font-sans text-[14.5px] text-muted">
-            Swap, watch the 24-second memory record, and settle the verdict —{" "}
+            You are the LP here: seed liquidity, then trade the spot lane (instant fill,{" "}
+            {m.premiumBps.toString()} bps live premium) and/or the batch lane (24 s epochs) —{" "}
             {m.traction
-              ? `${formatTokens(m.traction.a0 + m.traction.a1, 4)} returned to LPs so far`
+              ? `${formatTokens(m.traction.a0 + m.traction.a1, 4)} paid to LPs so far`
               : "returned-to-LPs reading…"}
             .
           </p>
@@ -84,12 +86,15 @@ export default function AppPage() {
         <GuideBanner step={step} />
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          {/* ── Swap panel ── */}
+          {/* ── Spot lane ── */}
           <SwapPanel />
 
           {/* ── Memory tape panel ── */}
           <MemoryPanel />
         </div>
+
+        {/* ── Batch lane ── */}
+        <BatchPanel />
 
         {/* ── Personal LP seat (add/remove through official PositionManager) ── */}
         <LpPanel />
@@ -112,8 +117,11 @@ function SwapPanel() {
 
   return (
     <Card className="overflow-hidden">
-      <div className="tape flex items-center justify-between border-b border-edge px-6 py-3">
-        <span>Swap · bond posted at 3 bps</span>
+      <div className="tape flex flex-wrap items-center justify-between gap-2 border-b border-edge px-6 py-3">
+        <span>Spot lane · instant fill at 3 bps</span>
+        <span className="font-mono text-[10.5px] text-faint">
+          premium {m.premiumBps.toString()} bps · live from settle history
+        </span>
         {m.address && (m.sellBal ?? 0n) > 0n && (m.buyBal ?? 0n) > 0n && (
           <span className="rounded-full bg-canvas/15 px-2 py-0.5 text-[10px] tracking-[0.14em]">STEP 3 HERE ↓</span>
         )}
@@ -176,13 +184,13 @@ function SwapPanel() {
                   aria-label="slippage tolerance percent"
                 />
               </div>
-              <Stat label="bond escrowed 24 s (20 bps)" value={m.amountIn ? formatTokens(m.bond, 6) : "—"} mono />
+              <Stat label={`premium escrowed 24 s (${m.premiumBps.toString()} bps)`} value={m.amountIn ? formatTokens(m.bond, 6) : "—"} mono />
               <Stat label="deadline" value="+5 min" />
             </div>
 
             {m.tooSmall && (
               <p className="mt-3 font-sans text-[12px] text-rose">
-                Swap too small — the 20 bps bond would round to zero (SwapTooSmall).
+                Swap too small — the premium (min 5 bps) would round to zero (SwapTooSmall).
               </p>
             )}
 
@@ -196,7 +204,7 @@ function SwapPanel() {
                 disabled={m.busy !== null || !m.amountIn || m.tooSmall || m.needApprove}
                 onClick={() => void m.onSwap()}
               >
-                {m.busy === "swap" ? "Signing…" : "Swap + post bond"}
+                {m.busy === "swap" ? "Signing…" : `Swap + post ${m.premiumBps.toString()} bps premium`}
               </Button>
               <div className="grid grid-cols-2 gap-2.5">
                 <Button variant="outline" disabled={m.busy !== null} onClick={() => void m.demoRefund()}>

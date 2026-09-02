@@ -49,7 +49,7 @@ Uniswap v4 core ships no oracle, so the hook maintains one per pool:
 ### Terminal Settlement
 
 * `settle(bytes32 tradeId)` is callable by **anyone** after the window; before it reverts `SettlementWindowOpen`, after settlement `AlreadySettled`, unknown ids `UnknownTrade`.
-* The verdict is recorded **before any value moves**; `settle` performs zero external calls.
+* The verdict is recorded **before any value moves**; a donate verdict credits in-range LPs inside the settle transaction whenever liquidity exists (deferred only at zero liquidity).
 * Successful refunds are **paid at settlement** from the hook's physically-held escrow. Only a failed token delivery (e.g. blacklist) leaves `RefundPending` with a retryable `claimRefund` — settlement can never brick.
 * Donate verdicts accumulate in a per-pool pending bucket; `flushDonation(poolId)` is permissionless once the pool has active liquidity and defers while it doesn't.
 
@@ -81,7 +81,7 @@ Uniswap v4 core ships no oracle, so the hook maintains one per pool:
 
 ## 7. Testing Strategy
 
-All logic verified via Foundry — 48/48 passing across four suites.
+All logic verified via Foundry — 55/55 passing across four suites.
 
 * **Engine (unit + fuzz):** 50% frontier boundaries in both directions, zero impact, overshoot, tiny fully-reverted swaps, large trades with noise, formula-vs-reference and monotonicity fuzzing.
 * **Integration + attack:** `test_bondPayable_genericRouter` (v4's own PoolSwapTest pays the bond), `test_bondPayable_attackerAuthoredRouter`, `test_fullReverseNextBlock_refunds` (1:1, no overshoot), `test_delayedSettlement_matchesWindowClose` (identical verdicts after 50 swaps + 200 pokes + 1 day), `test_hookData_beneficiaryRules` (empty/junk/zero hookData fall back to the caller; only a nonzero 32-byte declaration is honored), `test_batchedSwaps_sameUnlock_preTicksNotClobbered` (two swaps, one unlock, one router: transient pre-tick keying holds), `test_atomicSandwich_sameBlock_frontLegRefunds_honestLimit` (the named, documented limit), `test_lpDividend_beatsVanillaSameFee` (hook LP ends ~the 20 bps bond ahead of a vanilla 3 bps LP after identical toxic flow), `test_hookCallbacks_rejectNonPoolManager`, `test_faucetMint_doesNotBreakEscrow`, `test_claimExistsOnlyWhenDeliveryFailed`, `test_noRouterLock_surface`, reentrancy-blocked claims, zero-liquidity donation deferral, native-currency end-to-end, exact-in/out slippage + deadline, window/replay guards, `SwapTooSmall`, spot-game immunity, `bondFor` quoting.
@@ -96,7 +96,7 @@ All logic verified via Foundry — 48/48 passing across four suites.
 | **TSK-02** | `MarkoutEngine` normalized reversion math | Done, unit + fuzz tested |
 | **TSK-03** | `MarkoutHook`: delta-charged bond, append-only oracle, terminal settlement | Done, integration tested |
 | **TSK-04** | `MarkoutRouter` convenience integrator + `FaucetToken` | Done |
-| **TSK-05** | Foundry suites (48/48 incl. fork + invariants) | Done |
+| **TSK-05** | Foundry suites (55/55 incl. fork + invariants) | Done |
 | **TSK-06** | Deploy to canonical Sepolia + Etherscan verification | Done |
 | **TSK-07** | LiveProofPack: real Refund-at-settle + Donate hashes | Done (README) |
 | **TSK-08** | Live browser UI (frontend/) against the deployment | Done |

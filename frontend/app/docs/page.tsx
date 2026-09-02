@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 export const metadata: Metadata = {
   title: "How Markout works · docs",
   description:
-    "The logic behind Markout: the 20 bps bond, the 24-second fixed window, the 50% reversion frontier, outcomes, the any-router hook-delta charge, and why there are no partner integrations.",
+    "The logic behind Markout: the live-quoted reversion-insurance premium, the 24-second fixed window, the 50% reversion frontier, the opt-in batch lane, outcomes, the any-router hook-delta charge, and why there are no partner integrations.",
 };
 
 export default function Docs() {
@@ -59,10 +59,10 @@ export default function Docs() {
           </section>
 
           <section id="bond">
-            <h2>The 20 bps bond, payable through any router</h2>
+            <h2>The premium, payable through any router</h2>
             <p>
               Every swap fills immediately at the pool&apos;s 3 bps fee. On top, the hook charges a{" "}
-              <strong>20 bps input bond</strong> — exactly 20 bps of the realized input taken from
+              <strong>reversion-insurance premium</strong> — a live-quoted bps rate of the realized input taken from
               the post-swap <code>balanceDelta</code>, never a <code>slot0</code> estimate, for
               exact-in and exact-out alike. Dust swaps whose bond would round to zero revert with{" "}
               <code>SwapTooSmall</code>.
@@ -76,7 +76,15 @@ export default function Docs() {
               pays it with zero Markout-specific code. No allowlist, no <code>settleFor</code>, no{" "}
               <code>initializeRouter</code>.
             </p>
-            <Formula>bond = amountIn × 20 bps, escrowed by the hook until the verdict</Formula>
+            <Formula>premium = amountIn × premiumBps(pool) · donate +3 bps, refund −1 bps · clamp 5–60</Formula>
+            <p>
+              The rate is <strong>live-quoted from this pool&apos;s own settle history</strong>: every
+              donate verdict raises it 3 bps, every refund verdict lowers it 1 bp, and it clamps at
+              5 bps (dust swaps can never bypass) and 60 bps (no runaway). The only way to pump the
+              rate is to actually donate real premia to LPs, so the grief is self-funding for the
+              pool — poke spam and token gifts cannot move it. <code>premiumQuoteFor</code> is the
+              exact rate the next swap charges.
+            </p>
           </section>
 
           <section id="window">
@@ -121,7 +129,7 @@ export default function Docs() {
             <p>
               Settlement is permissionless — anyone calls <code>settle(tradeId)</code> after the
               window — and terminal: the verdict is recorded before any value moves, and{" "}
-              <code>settle</code> makes zero external calls.
+              <code>settle</code> credits in-range LPs in the same transaction whenever liquidity exists.
             </p>
             <Step n="①" place="outcome 1 · Refunded">
               The oracle said refund and the token delivered. The bond is paid to the trader{" "}
@@ -135,11 +143,37 @@ export default function Docs() {
               settlement can never brick.
             </Step>
             <Step n="③" place="outcome 3 · Donated">
-              The price sustained. The bond moves into a per-pool pending bucket and{" "}
-              <code>flushDonation(poolId)</code> pays it to in-range LPs via v4{" "}
-              <code>donate()</code> — permissionlessly, and deferred while the pool has zero active
-              liquidity (settle still succeeds; the flush waits).
+              The price sustained. The premium is forfeited — and whenever the pool has active
+              liquidity, <strong>in-range LPs are credited inside the settlement transaction
+              itself</strong> through v4&apos;s <code>donate()</code>. Only at zero liquidity does
+              the value wait in a per-pool pending bucket for the permissionless{" "}
+              <code>flushDonation(poolId)</code>; the settle itself still succeeds and can never
+              brick.
             </Step>
+          </section>
+
+          <section id="batch">
+            <h2>The opt-in batch lane</h2>
+            <p>
+              The SAME 24-second clock runs a second, opt-in lane. A trader enqueues one side of a
+              24 s epoch by calling <code>placeBatchOrder</code> directly — no router needed — and
+              the full deposit moves into explicit custody in the hook, cancellable any time
+              before the epoch clears. When the epoch ends, <strong>anyone</strong> calls{" "}
+              <code>clearBatch</code>: opposing orders net at the epoch&apos;s accumulator TWAP,
+              the dust-bounded residual executes as <strong>one normal bonded spot swap</strong>{" "}
+              (through an immutable hook-owned child router — v4-core skips hook callbacks on
+              self-calls, so the hook cannot dodge its own premium lane), and every order on a
+              side fills at the <strong>same uniform price</strong>: the TWAP clamped by realized
+              execution, so the hook never subsidizes a fill.
+            </p>
+            <Callout>
+              Honest limits of the batch lane: a lone order in an empty epoch is a one-epoch TWAP
+              fill — not a CoW-style auction, and we do not advertise it as one. One-sided epochs
+              pay the realized execution, not the TWAP. Order positioning inside an epoch is
+              economically empty (the price is time-weighted, not book-ordered — proven by test),
+              and clearing late is identical because the epoch TWAP is immutable in the
+              append-only accumulator.
+            </Callout>
           </section>
 
           <section id="any-router">
@@ -180,7 +214,7 @@ export default function Docs() {
               What the oracle honestly does not catch: slow trend flow that never reverts
               in-window, the front leg of an atomic sandwich (the backrun&apos;s reversion refunds
               it — the backrun leg is what donates), and donations go to whoever is in range at
-              flush, not the specific LPs who carried the inventory. The 20 bps bond is a
+              flush, not the specific LPs who carried the inventory. The premium is a
               deterrent tax on one-shot toxicity, not an LVR hedge — and settle is a
               transaction someone must send: permissionless, never automatic.
             </Callout>
@@ -215,10 +249,11 @@ export default function Docs() {
 function Toc() {
   const items: [string, string][] = [
     ["problem", "The problem"],
-    ["bond", "The 20 bps bond"],
+    ["bond", "The premium"],
     ["window", "The 24 s window"],
     ["frontier", "The 50% frontier"],
     ["outcomes", "Outcomes 1 / 2 / 3"],
+    ["batch", "The batch lane"],
     ["any-router", "Any router"],
     ["no-partners", "No partner integrations"],
     ["try", "Try it"],

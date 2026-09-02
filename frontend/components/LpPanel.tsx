@@ -134,8 +134,8 @@ export function LpPanel() {
           </div>
           <p className="note mt-3">
             You provide both sides full-range through the official v4 PositionManager (Permit2
-            allowances, 1-hour expiry). When toxic one-shot flow forfeits its 20 bps bond, the
-            flush pays in-range liquidity — that is you while this position is live.
+            allowances, 1-hour expiry). When toxic one-shot flow forfeits its premium,
+            the settle transaction itself pays in-range liquidity — that is you while this position is live.
           </p>
         </div>
       )}

@@ -23,7 +23,6 @@ import {
 import { toast as sonnerToast } from "sonner";
 
 import {
-  BOND_BPS,
   ERC20_ABI,
   ERC721_TRANSFER_TOPIC,
   HOOK,
@@ -85,6 +84,8 @@ export interface MarkoutState {
   chainId: number | undefined;
   hasProvider: boolean;
   onConnect: () => Promise<void>;
+  onDisconnect: () => void;
+  onSwitchAccount: () => Promise<void>;
   connBusy: boolean;
   switchNetwork: () => Promise<void>;
   wrongChain: boolean;
@@ -119,10 +120,19 @@ export interface MarkoutState {
   setSlippagePct: (s: string) => void;
   amountIn: bigint | null;
   bond: bigint;
+  premiumBps: bigint;
   tooSmall: boolean;
   needApprove: boolean;
   estOut: bigint | null;
   minOut: bigint;
+  // batch lane
+  batch: { epoch: bigint; endsAt: bigint; count: bigint; buy0: bigint; sell1: bigint } | null;
+  myOrders: { epoch: bigint; index: bigint; zeroForOne: boolean; amountIn: bigint }[];
+  lastClearEpoch: bigint | null;
+  onBatchPlace: (zeroForOne: boolean, amount: bigint) => Promise<void>;
+  onBatchCancel: (epoch: bigint, index: bigint) => Promise<void>;
+  onClearEpoch: (epoch: bigint) => Promise<void>;
+  demoBatchNet: () => Promise<void>;
   // trades
   trades: TradeRow[];
   active: TradeRow | null;
@@ -160,7 +170,7 @@ export function useMarkout(): MarkoutState {
 }
 
 export function MarkoutProvider({ children }: { children: ReactNode }) {
-  const { address, chainId, connect, hasProvider } = useWallet();
+  const { address, chainId, connect, disconnect, switchAccount, hasProvider } = useWallet();
 
   const [zeroForOne, setZeroForOne] = useState(true);
   const [amountStr, setAmountStr] = useState("1");
@@ -459,7 +469,34 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     }
   }, [amountStr]);
 
-  const bond = amountIn ? (amountIn * BOND_BPS) / 10000n : 0n;
+  // Live reversion-insurance premium (bps), polled from the hook: donate
+  // verdicts raise it, refund verdicts lower it, clamped [5, 60].
+  const [premiumBps, setPremiumBps] = useState<bigint>(20n);
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const v = (await publicClient.readContract({
+          address: HOOK,
+          abi: HOOK_ABI,
+          functionName: "premiumBps",
+          args: [POOL_ID],
+        })) as unknown as number | bigint;
+        if (alive) setPremiumBps(BigInt(v));
+      } catch {
+        /* keep last */
+      }
+    };
+    poll();
+    const iv = setInterval(poll, 6000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [tradesVersion]);
+
+  const bond = amountIn ? (amountIn * premiumBps) / 10000n : 0n;
+
   const tooSmall = amountIn !== null && bond === 0n;
   const needApprove = amountIn !== null && (allowanceVal ?? 0n) < amountIn + bond;
   const estOut = useMemo(() => {
@@ -629,6 +666,198 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (publicClient as any).simulateContract({ ...call, chain: null, account: call.account });
   };
+
+  // ---- batch lane: current epoch preview + this wallet's live orders ----
+  const [batchPreviewState, setBatchPreviewState] = useState<{
+    epoch: bigint;
+    endsAt: bigint;
+    count: bigint;
+    buy0: bigint;
+    sell1: bigint;
+  } | null>(null);
+  const [myOrders, setMyOrders] = useState<
+    { epoch: bigint; index: bigint; zeroForOne: boolean; amountIn: bigint }[]
+  >([]);
+  const [lastClearEpoch, setLastClearEpoch] = useState<bigint | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const p = (await publicClient.readContract({
+          address: HOOK,
+          abi: HOOK_ABI,
+          functionName: "batchPreview",
+          args: [POOL_ID],
+        })) as unknown as [bigint, bigint, bigint, bigint, bigint];
+        if (!alive) return;
+        setBatchPreviewState({ epoch: p[0], endsAt: p[1], count: p[2], buy0: p[3], sell1: p[4] });
+        if (!address || p[2] === 0n) {
+          setMyOrders([]);
+          return;
+        }
+        const idxs = Array.from({ length: Number(p[2]) }, (_, i) => BigInt(i));
+        const rows = (await publicClient.multicall({
+          contracts: idxs.map((i) => ({
+            address: HOOK,
+            abi: HOOK_ABI,
+            functionName: "batchOrders",
+            args: [POOL_ID, p[0], i],
+          })),
+          allowFailure: false,
+        })) as unknown as { trader: string; zeroForOne: boolean; amountIn: bigint }[];
+        setMyOrders(
+          idxs
+            .map((i, k) => ({ epoch: p[0], index: i, ...rows[k] }))
+            .filter((r) => r.trader.toLowerCase() === address.toLowerCase()),
+        );
+      } catch {
+        /* keep last */
+      }
+    };
+    poll();
+    const iv = setInterval(poll, 5000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [address, tradesVersion, chainBlockNow === 0n]);
+
+  const waitEpoch = async (endsAt: bigint) => {
+    for (;;) {
+      if (pilotAbort.current) throw new Error("demo aborted");
+      const b = await publicClient.getBlock();
+      if (b.timestamp >= endsAt + 1n) return;
+      await sleep(2000);
+    }
+  };
+
+  const _approveHookExact = useCallback(
+    async (token: `0x${string}`, amount: bigint) => {
+      if (!address) return;
+      const a = (await publicClient.readContract({
+        address: token,
+        abi: ERC20_ABI,
+        functionName: "allowance",
+        args: [address, HOOK],
+      })) as bigint;
+      if (a >= amount) return;
+      const wallet = walletClientFrom(getEthereum());
+      await simulate({
+        address: token,
+        abi: ERC20_ABI as never,
+        functionName: "approve",
+        args: [HOOK, amount],
+        account: address,
+      });
+      const h = await wallet.writeContract({
+        address: token,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [HOOK, amount],
+        account: address,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: h });
+    },
+    [address],
+  );
+
+  const onBatchPlace = useCallback(
+    async (zeroForOne: boolean, amount: bigint) => {
+      if (!address) return;
+      const token = zeroForOne ? TOKEN0 : TOKEN1;
+      setBusy("batch-place");
+      try {
+        await _approveHookExact(token, amount);
+        await simulate({
+          address: HOOK,
+          abi: HOOK_ABI as never,
+          functionName: "placeBatchOrder",
+          args: [[TOKEN0, TOKEN1, POOL_KEY.fee, POOL_KEY.tickSpacing, POOL_KEY.hooks], zeroForOne, amount],
+          account: address,
+        });
+        const wallet = walletClientFrom(getEthereum());
+        const h = await wallet.writeContract({
+          address: HOOK,
+          abi: HOOK_ABI,
+          functionName: "placeBatchOrder",
+          args: [[TOKEN0, TOKEN1, POOL_KEY.fee, POOL_KEY.tickSpacing, POOL_KEY.hooks], zeroForOne, amount] as never,
+          account: address,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: h });
+        sonnerToast.success(
+          `Queued for the current epoch — custody taken by the hook, cancellable until clear.`,
+          { action: { label: "tx", onClick: () => window.open(explorerTx(h), "_blank") } },
+        );
+        refreshAll();
+      } catch (e) {
+        sonnerToast.error(`Batch enqueue failed: ${revertReason(e)}`);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [address, _approveHookExact, refreshAll],
+  );
+
+  const onBatchCancel = useCallback(
+    async (epoch: bigint, index: bigint) => {
+      if (!address) return;
+      setBusy("batch-cancel");
+      try {
+        const wallet = walletClientFrom(getEthereum());
+        const h = await wallet.writeContract({
+          address: HOOK,
+          abi: HOOK_ABI,
+          functionName: "cancelBatchOrder",
+          args: [POOL_ID, epoch, index],
+          account: address,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: h });
+        sonnerToast.success("Order cancelled — deposit returned.");
+        refreshAll();
+      } catch (e) {
+        sonnerToast.error(`Cancel failed: ${revertReason(e)}`);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [address, refreshAll],
+  );
+
+  const onClearEpoch = useCallback(
+    async (epoch: bigint) => {
+      if (!address) return;
+      setBusy("batch-clear");
+      try {
+        await simulate({
+          address: HOOK,
+          abi: HOOK_ABI as never,
+          functionName: "clearBatch",
+          args: [[TOKEN0, TOKEN1, POOL_KEY.fee, POOL_KEY.tickSpacing, POOL_KEY.hooks], epoch],
+          account: address,
+        });
+        const wallet = walletClientFrom(getEthereum());
+        const h = await wallet.writeContract({
+          address: HOOK,
+          abi: HOOK_ABI,
+          functionName: "clearBatch",
+          args: [[TOKEN0, TOKEN1, POOL_KEY.fee, POOL_KEY.tickSpacing, POOL_KEY.hooks], epoch] as never,
+          account: address,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: h });
+        setLastClearEpoch(epoch);
+        sonnerToast.success(`Epoch ${epoch} cleared — uniform price set by the epoch TWAP.`, {
+          action: { label: "tx", onClick: () => window.open(explorerTx(h), "_blank") },
+        });
+        refreshAll();
+      } catch (e) {
+        sonnerToast.error(`Clear failed: ${revertReason(e)}`);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [address, refreshAll],
+  );
 
   const onConnect = useCallback(async () => {
     if (!hasProvider) {
@@ -1135,8 +1364,8 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
           await publicClient.waitForTransactionReceipt({ hash: h });
         }
       };
-      await approveAll(TOKEN0, DEMO_BUY + (DEMO_BUY * BOND_BPS) / 10000n);
-      await approveAll(TOKEN1, DEMO_REVERSE + (DEMO_REVERSE * BOND_BPS) / 10000n);
+      await approveAll(TOKEN0, DEMO_BUY + (DEMO_BUY * premiumBps) / 10000n);
+      await approveAll(TOKEN1, DEMO_REVERSE + (DEMO_REVERSE * premiumBps) / 10000n);
 
       sonnerToast.info("DEMO 1/5 — organic swap (1 MDA in)…");
       const first = await doSwapTx(DEMO_BUY, true, 0n);
@@ -1160,11 +1389,17 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
 
       sonnerToast.info("DEMO 4/5 — settling…");
       const outcome = await onSettle(first.tradeId);
-      if (outcome === 2) {
-        sonnerToast.info("DEMO 5/5 — delivery failed in this run; claiming…");
+      if (outcome === 1) {
+        sonnerToast.success("DEMO 5/5 — REFUND: premium paid back to the trader at settlement.");
+      } else if (outcome === 2) {
+        sonnerToast.info("DEMO 5/5 — REFUND verdict, delivery failed in this run; claiming…");
         await onClaim(first.tradeId);
+      } else if (outcome === 3) {
+        sonnerToast.warning(
+          "DEMO 5/5 — settled DONATE, not refund: the window did not revert past half this run. Not a win; the classifier told the truth.",
+        );
       } else {
-        sonnerToast.success("DEMO 5/5 — bond refunded to the trader AT SETTLEMENT.");
+        sonnerToast.error("DEMO 5/5 — settle did not record a verdict.");
       }
     } catch (e) {
       sonnerToast.error(`Demo aborted: ${revertReason(e)}`);
@@ -1174,13 +1409,80 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     }
   }, [address, sellBal, doSwapTx, onSettle, onClaim]);
 
+  /// One-wallet netting demo: enqueue a buy and a value-paired sell into the
+  /// SAME epoch, wait out the epoch on chain time, clear it permissionlessly,
+  /// and report the uniform clearing from the BatchCleared event. Real
+  /// on-chain opposing orders — no mock, no second wallet required.
+  const demoBatchNet = useCallback(async () => {
+    if (!address) return;
+    pilotAbort.current = false;
+    setPilot("donate");
+    setBusy("demo");
+    try {
+      const buyAmt = 5n * 10n ** 17n; // 0.5 MDA
+      if ((sellBal ?? 0n) < buyAmt) {
+        sonnerToast.error("Need ~0.5 MDA for the batch demo — mint first.");
+        return;
+      }
+      const p = (await publicClient.readContract({
+        address: HOOK,
+        abi: HOOK_ABI,
+        functionName: "batchPreview",
+        args: [POOL_ID],
+      })) as unknown as [bigint, bigint, bigint, bigint, bigint];
+      if (p[2] !== 0n) {
+        sonnerToast.error("Current epoch already has orders — clear it first or wait for the next epoch.");
+        return;
+      }
+      // Pair the sell at the live price so the epoch nets.
+      const priceNow = sqrtX96 ? Number((sqrtX96 * sqrtX96) / (1n << 192n)) : null;
+      if (!priceNow) {
+        sonnerToast.error("Live price not loaded yet — retry in a moment.");
+        return;
+      }
+      const sellAmt = BigInt(Math.round(Number(buyAmt) * priceNow));
+
+      sonnerToast.info("BATCH 1/4 — enqueueing buy + value-paired sell into this epoch…");
+      await onBatchPlace(true, buyAmt);
+      await onBatchPlace(false, sellAmt);
+
+      sonnerToast.info("BATCH 2/4 — waiting out the epoch (chain time)…");
+      await waitEpoch(p[1]);
+
+      sonnerToast.info("BATCH 3/4 — clearing the epoch (permissionless)…");
+      const wallet = walletClientFrom(getEthereum());
+      const h = await wallet.writeContract({
+        address: HOOK,
+        abi: HOOK_ABI,
+        functionName: "clearBatch",
+        args: [[TOKEN0, TOKEN1, POOL_KEY.fee, POOL_KEY.tickSpacing, POOL_KEY.hooks], p[0]] as never,
+        account: address,
+      });
+      const rc = await publicClient.waitForTransactionReceipt({ hash: h });
+      const cleared = rc.logs.find((l) => l.topics[0] === TOPICS.batchCleared);
+      if (!cleared) throw new Error("no BatchCleared event");
+
+      sonnerToast.info("BATCH 4/4 — epoch cleared at the uniform TWAP.");
+      sonnerToast.success("Batch demo complete: opposing orders netted, both sides filled at one price.", {
+        action: { label: "tx", onClick: () => window.open(explorerTx(h), "_blank") },
+      });
+      setLastClearEpoch(p[0]);
+      refreshAll();
+    } catch (e) {
+      sonnerToast.error(`Batch demo aborted: ${revertReason(e)}`);
+    } finally {
+      setPilot(null);
+      setBusy(null);
+    }
+  }, [address, sellBal, onBatchPlace, refreshAll]);
+
   const demoDonate = useCallback(async () => {
     if (!address) return;
     pilotAbort.current = false;
     setPilot("donate");
     setBusy("demo");
     try {
-      if ((sellBal ?? 0n) < DEMO_BUY + (DEMO_BUY * BOND_BPS) / 10000n) {
+      if ((sellBal ?? 0n) < DEMO_BUY + (DEMO_BUY * premiumBps) / 10000n) {
         sonnerToast.error("Need ~1.02 MDA for the demo — mint first.");
         return;
       }
@@ -1219,6 +1521,10 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     chainId,
     hasProvider,
     onConnect,
+    onDisconnect: disconnect,
+    onSwitchAccount: async () => {
+      await switchAccount();
+    },
     connBusy,
     switchNetwork,
     wrongChain,
@@ -1248,6 +1554,7 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     setSlippagePct,
     amountIn,
     bond,
+    premiumBps,
     tooSmall,
     needApprove,
     estOut,
@@ -1269,6 +1576,13 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     onFlush,
     demoRefund,
     demoDonate,
+    batch: batchPreviewState,
+    myOrders,
+    lastClearEpoch,
+    onBatchPlace,
+    onBatchCancel,
+    onClearEpoch,
+    demoBatchNet,
     refreshAll,
   };
 

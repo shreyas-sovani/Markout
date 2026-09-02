@@ -182,17 +182,15 @@ contract MarkoutForkTest is Test {
         assertEq(token0.balanceOf(alice), aliceBefore + bond, "bond PAID AT SETTLE on canonical PM");
         assertEq(hook.escrowLiability(Currency.wrap(address(token0))), 0, "liability cleared");
 
-        // The arbitrageur's own reversal trade, left unreversed, donates.
+        // The arbitrageur's own reversal trade, left unreversed, donates —
+        // and with liquidity standing, the premium credits in-range LPs IN
+        // the settlement transaction on the canonical PoolManager.
+        (, uint256 arberBond,,) = _t(arberTrade);
+        uint256 pm1 = token1.balanceOf(address(CANONICAL_PM));
         hook.settle(arberTrade);
         assertEq(uint8(_outcome(arberTrade)), uint8(MarkoutHook.Outcome.Donated), "toxic => donate");
-
-        (, uint256 arberBond,,) = _t(arberTrade);
-        uint256 pending = hook.pendingDonation(key.toId(), 1); // arber's input was token1
-        assertEq(pending, arberBond, "donation deferred");
-
-        uint256 pm1 = token1.balanceOf(address(CANONICAL_PM));
-        hook.flushDonation(key.toId());
-        assertEq(token1.balanceOf(address(CANONICAL_PM)), pm1 + pending, "donation reached LPs");
+        assertEq(hook.pendingDonation(key.toId(), 1), 0, "nothing deferred while L > 0");
+        assertEq(token1.balanceOf(address(CANONICAL_PM)), pm1 + arberBond, "premium reached LPs inside settle");
         assertEq(token1.balanceOf(address(hook)), 0, "escrow empty");
         assertEq(hook.escrowLiability(Currency.wrap(address(token1))), 0, "liability cleared");
     }

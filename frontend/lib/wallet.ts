@@ -64,5 +64,25 @@ export function useWallet() {
 
   const disconnect = useCallback(() => setAddress(undefined), []);
 
-  return { address, chainId, connect, disconnect, hasProvider: !!getEthereum() };
+  // Ask the extension for its account-switcher; on wallets without the
+  // method, fall back to a plain re-request which most extensions surface
+  // as the account chooser.
+  const switchAccount = useCallback(async (): Promise<Address | undefined> => {
+    const eth = getEthereum();
+    if (!eth) return undefined;
+    try {
+      const accounts = (await eth.request({
+        method: "wallet_requestPermissions",
+        params: [{ eth_accounts: {} }],
+      })) as unknown as { eth_accounts?: { accounts?: string[] } }[];
+      const list = accounts?.[0]?.eth_accounts?.accounts;
+      const a = list?.length ? (list[list.length - 1] as Address) : undefined;
+      if (a) setAddress(a);
+      return a;
+    } catch {
+      return await connect();
+    }
+  }, [connect]);
+
+  return { address, chainId, connect, disconnect, switchAccount, hasProvider: !!getEthereum() };
 }

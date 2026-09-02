@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://markout-nine.vercel.app"),
   title: "Markout: the pool that remembers",
   description:
-    "A Uniswap v4 hook on the canonical Sepolia PoolManager. Each swap is marked 24 s later: if ≥50% of its own impact reverted, the 20 bps bond returns to the trader at settle; if it stayed, in-range LPs keep it. Any router. No partner integrations.",
+    "A Uniswap v4 hook on the canonical Sepolia PoolManager. Two lanes on one hook-local 24 s memory: instant spot swaps with a live-quoted reversion-insurance premium (settled history prices it), and opt-in 24 s batch epochs that net opposing orders at the epoch TWAP. If ≥50% of a swap's own impact reverted, the premium returns at settle; if it stayed, in-range LPs keep it. Any router. No partner integrations.",
 };
 
 export default function RootLayout({

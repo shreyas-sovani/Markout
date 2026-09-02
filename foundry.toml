@@ -5,7 +5,11 @@ libs = ["lib"]
 solc = "0.8.26"
 evm_version = "cancun"
 optimizer = true
-optimizer_runs = 44444444
+optimizer_runs = 20000
 via_ir = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+# forge coverage force-disables optimizer/via_ir and suggests --ir-minimum,
+# which stack-overflows clearBatch. The 2026-09-02 stack refactor below is the
+# fix; run coverage as: forge coverage --ir-minimum

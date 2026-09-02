@@ -36,13 +36,31 @@ contract MarkoutFuzzTest is Test {
     function setUp() public {
         handler = new Handler();
         targetContract(address(handler));
-        bytes4[] memory selectors = new bytes4[](5);
+        bytes4[] memory selectors = new bytes4[](8);
         selectors[0] = Handler.doSwap.selector;
         selectors[1] = Handler.advanceTime.selector;
         selectors[2] = Handler.doSettle.selector;
         selectors[3] = Handler.doClaimRefund.selector;
         selectors[4] = Handler.doFlushDonation.selector;
+        selectors[5] = Handler.doPlaceBatchOrder.selector;
+        selectors[6] = Handler.doCancelBatchOrder.selector;
+        selectors[7] = Handler.doClearBatch.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
+    }
+
+    function invariant_batchCustodyCovered() public view {
+        assertGe(
+            handler.token0().balanceOf(address(handler.hook())),
+            handler.hook().escrowLiability(Currency.wrap(address(handler.token0())))
+                + handler.hook().batchEscrow(Currency.wrap(address(handler.token0()))),
+            "batch custody: token0 balance below liability + batch escrow"
+        );
+        assertGe(
+            handler.token1().balanceOf(address(handler.hook())),
+            handler.hook().escrowLiability(Currency.wrap(address(handler.token1())))
+                + handler.hook().batchEscrow(Currency.wrap(address(handler.token1()))),
+            "batch custody: token1 balance below liability + batch escrow"
+        );
     }
 
     function invariant_escrowCovered() public view {
@@ -292,6 +310,64 @@ contract Handler is StdUtils {
         for (uint256 i; i < ghostList.length; ++i) {
             if (ghostList[i].outcome == uint8(MarkoutHook.Outcome.Donated)) {
                 ghostList[i].released = ghostList[i].bond;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Batch-lane actions
+    // ------------------------------------------------------------------
+
+    function doPlaceBatchOrder(uint256 seed) external {
+        uint256 epoch = hook.epochOf(block.timestamp);
+        if (hook.batchCleared(key.toId(), epoch)) return;
+        address who = seed % 2 == 0 ? alice : arber;
+        bool zeroForOne = (seed >> 1) % 2 == 0;
+        uint256 amount = bound(seed >> 2, 1e15, 3e17);
+        vm.startPrank(who);
+        if (zeroForOne) token0.approve(address(hook), type(uint256).max);
+        else token1.approve(address(hook), type(uint256).max);
+        hook.placeBatchOrder(key, zeroForOne, amount);
+        vm.stopPrank();
+    }
+
+    function doCancelBatchOrder(uint256 seed) external {
+        uint256 epoch = hook.epochOf(block.timestamp);
+        if (hook.batchCleared(key.toId(), epoch)) return;
+        (,,,, uint256 count) = hook.batchPreview(key.toId());
+        if (count == 0) return;
+        uint256 index = seed % count;
+        (address trader,,) = hook.batchOrders(key.toId(), epoch, index);
+        if (trader == address(0)) return;
+        vm.prank(trader);
+        hook.cancelBatchOrder(key.toId(), epoch, index);
+    }
+
+    function doClearBatch(uint256 seed) external {
+        uint256 current = hook.epochOf(block.timestamp);
+        if (current == 0) return; // epoch 0 needs time to pass first
+        uint256 epoch = seed % current; // a strictly past epoch
+        if (hook.batchCleared(key.toId(), epoch)) return;
+        vm.recordLogs();
+        hook.clearBatch(key, epoch);
+        // Ghost any residual trade the clear created (the hook is its own
+        // beneficiary) so the liability identity stays checkable.
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        for (uint256 i; i < entries.length; ++i) {
+            if (entries[i].emitter == address(hook) && entries[i].topics[0] == SWAP_BONDED_TOPIC) {
+                bytes32 id = entries[i].topics[1];
+                (,, uint256 b) = abi.decode(entries[i].data, (int24, int24, uint256));
+                (,, Currency bondCurrency,,,,,,,,) = hook.trades(id);
+                ghostList.push(
+                    Ghost({
+                        id: id,
+                        is0: Currency.unwrap(bondCurrency) == address(token0),
+                        bond: b,
+                        outcome: 0,
+                        released: 0,
+                        pushesAtBond: swapCount
+                    })
+                );
             }
         }
     }

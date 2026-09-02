@@ -405,7 +405,10 @@ contract MarkoutTest is Test {
         assertEq(uint8(o3), uint8(MarkoutHook.Outcome.Refunded), "terminal after claim");
     }
 
-    function test_arbSustains_donatesAndFlushes() public {
+    /// @dev With liquidity standing, a donate verdict credits in-range LPs
+    /// IN THE SETTLEMENT TRANSACTION: the pool's Donate fires inside settle,
+    /// the pending bucket stays empty, and escrow + liability clear at once.
+    function test_arbSustains_creditsLpsAtSettle() public {
         vm.recordLogs();
         _swap(alice, true, -2e17);
         bytes32 tradeId = _bondedId();
@@ -414,6 +417,8 @@ contract MarkoutTest is Test {
         uint256 alice0 = currency0.balanceOf(alice);
         uint256 pool0 = currency0.balanceOf(address(manager));
 
+        vm.expectEmit(true, true, true, true, address(manager));
+        emit IPoolManager.Donate(key.toId(), address(hook), expectedBond, uint256(0));
         vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
         vm.prank(settler);
         hook.settle(tradeId);
@@ -421,16 +426,15 @@ contract MarkoutTest is Test {
         (,,, MarkoutHook.Outcome outcome,) = _trade(tradeId);
         assertEq(uint8(outcome), uint8(MarkoutHook.Outcome.Donated), "expected donate");
         assertEq(currency0.balanceOf(alice), alice0, "toxic trader keeps nothing");
-        assertEq(hook.pendingDonation(key.toId(), 0), expectedBond, "donation deferred");
-
-        vm.expectEmit(true, true, true, true, address(manager));
-        emit IPoolManager.Donate(key.toId(), address(hook), expectedBond, uint256(0));
-        vm.prank(settler);
-        hook.flushDonation(key.toId());
-
-        assertEq(currency0.balanceOf(address(manager)), pool0 + expectedBond, "pool received the bond");
-        assertEq(currency0.balanceOf(address(hook)), 0, "hook holds no escrow after flush");
+        assertEq(hook.pendingDonation(key.toId(), 0), 0, "nothing deferred while L > 0");
+        assertEq(
+            currency0.balanceOf(address(manager)), pool0 + expectedBond, "pool received the premium in the settle tx"
+        );
+        assertEq(currency0.balanceOf(address(hook)), 0, "hook holds no escrow after settle");
         assertEq(hook.escrowLiability(currency0), 0, "liability cleared");
+        assertEq(
+            hook.premiumBps(key.toId()), hook.PREMIUM_DEFAULT_BPS() + hook.PREMIUM_UP_BPS(), "donate raises the premium"
+        );
     }
 
     function test_zeroLiquidity_donationDeferred() public {
@@ -709,7 +713,11 @@ contract MarkoutTest is Test {
         uint256 totalIn = uint256(uint128(-delta.amount0()));
         (, uint256 bond,,,) = _trade(tradeId);
         uint256 amountIn = totalIn - bond;
-        assertEq(bond, (amountIn * hook.BOND_BPS()) / hook.BPS_DENOMINATOR(), "bond != 20 bps of realized amountIn");
+        assertEq(
+            bond,
+            (amountIn * hook.premiumBps(key.toId())) / hook.BPS_DENOMINATOR(),
+            "premium != quoted bps of realized amountIn"
+        );
         assertEq(currency0.balanceOf(address(hook)), bond, "escrow equals bond");
         assertEq(
             alice0Before - currency0.balanceOf(alice),
@@ -718,10 +726,47 @@ contract MarkoutTest is Test {
         );
     }
 
-    function test_bondFor_quotes() public view {
-        assertEq(hook.bondFor(1e18), 2e15, "bondFor(1e18)");
-        assertEq(hook.bondFor(499), 0, "bondFor dust");
-        assertEq(hook.bondFor(500), 1, "bondFor minimum unit");
+    /// @dev The quoted premium is exactly what the next swap charges, and
+    /// only settle outcomes move it. Poke spam and faucet gifts are inert.
+    function test_premiumQuote_matchesCharge_andStepper() public {
+        assertEq(hook.premiumBps(key.toId()), 20, "premium starts at the default");
+
+        // A refunded trade decays the premium by the down step.
+        vm.recordLogs();
+        _swap(alice, true, -2e17);
+        bytes32 refundId = _bondedId();
+        _swap(arber, false, -2e17);
+        vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
+        hook.settle(refundId);
+        assertEq(hook.premiumBps(key.toId()), 19, "refund lowers the premium");
+
+        // Pokes and gifts cannot move it.
+        for (uint256 i; i < 50; ++i) {
+            hook.poke(key.toId());
+        }
+        MockERC20(Currency.unwrap(currency0)).mint(address(hook), 5e18);
+        assertEq(hook.premiumBps(key.toId()), 19, "pokes and gifts are inert");
+
+        // Donated trades raise it, same-direction one-shots, until the clamp.
+        for (uint256 i; i < 20; ++i) {
+            vm.recordLogs();
+            _swap(alice, true, -1e17);
+            bytes32 toxic = _bondedId();
+            vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
+            hook.settle(toxic);
+        }
+        assertEq(hook.premiumBps(key.toId()), hook.PREMIUM_MAX_BPS(), "burst of donates clamps at the max");
+
+        // Quote == charge, at whatever the current rate is (small size: the
+        // burst has pushed price far, keep the fill complete).
+        uint256 amt = 1e15;
+        uint256 quoted = hook.premiumQuoteFor(key.toId(), amt);
+        assertTrue(quoted > 0, "clamp floor keeps quotes nonzero");
+        vm.recordLogs();
+        _swap(alice, true, -int256(amt));
+        bytes32 charged = _bondedId();
+        (, uint256 bond,,,) = _trade(charged);
+        assertEq(bond, quoted, "quoted premium is exactly what the swap charged");
     }
 
     function test_swapTooSmall_reverts() public {
@@ -869,14 +914,14 @@ contract MarkoutTest is Test {
         (, uint256 donateBond,,,) = _trade(donateId);
 
         vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
+        uint256 pmEthBefore = address(manager).balance;
         hook.settle(donateId);
 
-        uint256 pmEthBefore = address(manager).balance;
-        vm.prank(settler);
-        hook.flushDonation(k.toId());
-        assertEq(address(manager).balance, pmEthBefore + donateBond, "pool received the native donation");
+        // L > 0: the native donation credits in-range LPs IN the settle tx.
+        assertEq(address(manager).balance, pmEthBefore + donateBond, "pool received the native premium at settle");
         assertEq(address(hook).balance, 0, "hook escrow released");
         assertEq(hook.escrowLiability(CurrencyLibrary.ADDRESS_ZERO), 0, "native liability cleared");
+        assertEq(hook.pendingDonation(k.toId(), 0), 0, "nothing deferred while L > 0");
     }
 
     // ---------------------------------------------------------------------
@@ -1070,14 +1115,14 @@ contract MarkoutTest is Test {
             new bytes(0)
         );
 
-        // Hook pool: the same toxic swap, window closes, bond donated + flushed.
+        // Hook pool: the same toxic swap, window closes, premium donated —
+        // and credited to LPs inside the settle tx (L > 0), so no flush.
         vm.recordLogs();
         _swap(alice, true, -2e16);
         bytes32 tradeId = _bondedId();
         (, uint256 bond,,,) = _trade(tradeId);
         vm.warp(block.timestamp + hook.SETTLEMENT_DELAY() + 1);
         hook.settle(tradeId);
-        hook.flushDonation(key.toId());
 
         // Withdraw both LP positions; this contract holds both.
         IPoolManager.ModifyLiquidityParams memory exit = IPoolManager.ModifyLiquidityParams({
@@ -1105,6 +1150,246 @@ contract MarkoutTest is Test {
         int256 dividend = net0 + net1;
         assertGt(dividend, 0, "hook LP must end ahead of the vanilla LP");
         assertApproxEqAbs(dividend, int256(bond), 5e12, "the dividend is ~the 20 bps bond: no magic extra");
+    }
+
+    // ---------------------------------------------------------------------
+    // Batch lane — 24 s epochs on the oracle's own clock, uniform clears
+    // ---------------------------------------------------------------------
+
+    /// @dev Approve the hook for batch custody pulls and enqueue an order.
+    function _place(address who, bool zeroForOne, uint256 amount) internal returns (uint256 index) {
+        vm.startPrank(who);
+        Currency c = zeroForOne ? currency0 : currency1;
+        MockERC20(Currency.unwrap(c)).approve(address(hook), type(uint256).max);
+        index = hook.placeBatchOrder(key, zeroForOne, amount);
+        vm.stopPrank();
+    }
+
+    /// @dev Equal opposing orders in a quiescent epoch net EXACTLY: no AMM
+    /// swap (slot0 and pool balances unchanged), both sides fill at the
+    /// 1:1 TWAP, zero dust.
+    function test_batch_exactNet_noAmmSwap() public {
+        uint256 alice0 = currency0.balanceOf(alice);
+        uint256 alice1 = currency1.balanceOf(alice);
+        uint256 arber0 = currency0.balanceOf(arber);
+        uint256 arber1 = currency1.balanceOf(arber);
+        (, int24 tickBefore,,) = StateLibrary.getSlot0(manager, key.toId());
+        uint256 pm0 = currency0.balanceOf(address(manager));
+        uint256 pm1 = currency1.balanceOf(address(manager));
+
+        _place(alice, true, 1e18); // buy: in 1e18 c0
+        _place(arber, false, 1e18); // sell: in 1e18 c1
+
+        uint256 epoch = hook.epochOf(block.timestamp);
+        vm.warp((epoch + 1) * hook.SETTLEMENT_DELAY() + 1);
+        vm.prank(settler);
+        hook.clearBatch(key, epoch);
+
+        (, int24 tickAfter,,) = StateLibrary.getSlot0(manager, key.toId());
+        assertEq(tickAfter, tickBefore, "exact net must not touch the AMM");
+        assertEq(currency0.balanceOf(address(manager)), pm0, "pool c0 unchanged");
+        assertEq(currency1.balanceOf(address(manager)), pm1, "pool c1 unchanged");
+        assertEq(currency1.balanceOf(alice) - alice1, 1e18, "buyer filled at the 1:1 TWAP");
+        assertEq(currency0.balanceOf(arber) - arber0, 1e18, "seller filled at the 1:1 TWAP");
+        assertEq(currency0.balanceOf(alice), alice0 - 1e18, "buyer deposit fully consumed");
+        assertEq(currency1.balanceOf(arber), arber1 - 1e18, "seller deposit fully consumed");
+        assertEq(hook.batchEscrow(currency0), 0, "no c0 batch liability left");
+        assertEq(hook.batchEscrow(currency1), 0, "no c1 batch liability left");
+    }
+
+    /// @dev Partial netting leaves ONE residual swap through the normal
+    /// bonded lane (the hook is the caller and pays the quoted premium like
+    /// anyone else), and every order on a side fills at the SAME rate.
+    function test_batch_partialNet_residualSwapAndUniformFills() public {
+        _place(alice, true, 2e18);
+        _place(arber, true, 1e18); // same side — no netting against a seller
+        _place(address(this), false, 5e17); // sell side, funded below
+
+        uint256 epoch = hook.epochOf(block.timestamp);
+        vm.warp((epoch + 1) * hook.SETTLEMENT_DELAY() + 1);
+        vm.recordLogs();
+        vm.prank(settler);
+        hook.clearBatch(key, epoch);
+
+        // The residual was a bonded spot swap with the hook as trader.
+        assertGt(hook.escrowLiability(currency0), 0, "afterSwap escrowed the residual premium");
+        bytes32 residualTrade;
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        for (uint256 i; i < entries.length; ++i) {
+            if (entries[i].topics[0] == SWAP_BONDED_TOPIC) {
+                residualTrade = entries[i].topics[1];
+            }
+        }
+        assertTrue(residualTrade != bytes32(0), "residual swap must be bonded");
+        (address residualTrader, uint256 residualBond,,) = _ticksAndBond(residualTrade);
+        assertEq(residualTrader, address(hook), "hook is the residual swap caller");
+        assertGt(residualBond, 0, "residual pays the premium");
+
+        // Uniform per-side rates: both buyers got the same out1 per in0.
+        uint256 outAlice = currency1.balanceOf(alice) - 1000e18;
+        uint256 outArber = currency1.balanceOf(arber) - 1000e18;
+        uint256 rateA = outAlice * 1e18 / 2e18;
+        uint256 rateB = outArber * 1e18 / 1e18;
+        assertApproxEqAbs(int256(rateA), int256(rateB), 2, "both buyers cleared at the SAME rate");
+
+        // Netting credit: the sell side was paid from buyer deposits at the
+        // same clearing, dust bounded.
+        assertTrue(currency0.balanceOf(address(this)) > 5e16, "seller paid out");
+    }
+
+    function _ticksAndBond(bytes32 tradeId)
+        internal
+        view
+        returns (address trader, uint256 bond, int24 pre, int24 post)
+    {
+        (, address t,, uint256 b, int24 p, int24 q,,,,,) = hook.trades(tradeId);
+        return (t, b, p, q);
+    }
+
+    /// @dev A lone order in an empty epoch is a one-epoch TWAP fill, clamped
+    /// by the realized residual execution — the hook never subsidizes.
+    function test_batch_loneOrder_isOneEpochTwapBoundedByExecution() public {
+        _place(alice, true, 1e18);
+        uint256 epoch = hook.epochOf(block.timestamp);
+        vm.warp((epoch + 1) * hook.SETTLEMENT_DELAY() + 1);
+
+        // Baseline: what one direct 1e18 swap would return right now.
+        uint256 spotOut = _quoteDirectSwapOut(true, 1e18);
+        uint256 out1 = currency1.balanceOf(alice);
+        vm.prank(settler);
+        hook.clearBatch(key, epoch);
+        uint256 filled = currency1.balanceOf(alice) - out1;
+
+        // Uniform price exists, fill is bounded between the spot execution
+        // and the TWAP — never a subsidized rate above either.
+        assertGt(filled, 0, "lone order fills");
+        assertLe(filled, spotOut, "hook never pays above spot execution");
+    }
+
+    /// @dev Order positioning inside an epoch is economically empty: placing,
+    /// reordering, and cancelling other orders cannot move anyone else's
+    /// clearing price — the price is time-weighted, not book-ordered.
+    function test_batch_sandwichPositioning_isEmpty() public {
+        // Baseline epoch: a matched pair nets exactly at the 1:1 TWAP.
+        uint256 alice1Before = currency1.balanceOf(alice);
+        uint256 arber0Before = currency0.balanceOf(arber);
+        uint256 counter0Before = currency0.balanceOf(address(this));
+        _place(alice, true, 1e18);
+        _place(arber, false, 1e18);
+        uint256 epoch = hook.epochOf(block.timestamp);
+        vm.warp((epoch + 1) * hook.SETTLEMENT_DELAY() + 1);
+        vm.prank(settler);
+        hook.clearBatch(key, epoch);
+        assertEq(currency1.balanceOf(alice) - alice1Before, 1e18, "baseline exact net");
+        assertEq(currency0.balanceOf(arber) - arber0Before, 1e18, "baseline seller net");
+
+        // Attack epoch: the same pair, bracketed by a huge front order and a
+        // huge late opposing order that are both cancelled before the clear.
+        vm.warp((epoch + 2) * hook.SETTLEMENT_DELAY() + 1);
+        uint256 attackEpoch = hook.epochOf(block.timestamp);
+        uint256 atkIdx = _place(arber, true, 50e18); // huge front order
+        _place(alice, true, 1e18); // the victim
+        uint256 backIdx = _place(arber, false, 50e18); // huge back order
+        _place(address(this), false, 1e18); // the matched counter-side
+        vm.startPrank(arber);
+        hook.cancelBatchOrder(key.toId(), attackEpoch, atkIdx);
+        hook.cancelBatchOrder(key.toId(), attackEpoch, backIdx);
+        vm.stopPrank();
+        vm.warp((attackEpoch + 1) * hook.SETTLEMENT_DELAY() + 1);
+        vm.prank(settler);
+        hook.clearBatch(key, attackEpoch);
+
+        uint256 alice1AfterBaseline = currency1.balanceOf(alice) - 1e18; // baseline fill already counted
+        assertEq(currency1.balanceOf(alice) - alice1Before, 2e18, "victim filled twice at the same immutable rate");
+        assertGt(currency0.balanceOf(address(this)), 0, "counter-side cleared");
+        assertApproxEqAbs(
+            int256(currency0.balanceOf(address(this)) - counter0Before),
+            1e18,
+            1e12,
+            "counter-side clearing unchanged by attacker positioning"
+        );
+    }
+
+    /// @dev Custody is explicit and cancellable before the clear; after the
+    /// clear, cancellation and double-clearing are refused.
+    function test_batch_cancelAndGuards() public {
+        uint256 alice0 = currency0.balanceOf(alice);
+        uint256 idx = _place(alice, true, 1e18);
+        assertEq(currency0.balanceOf(alice), alice0 - 1e18, "custody taken");
+
+        uint256 epochNow = hook.epochOf(block.timestamp);
+        vm.expectRevert(MarkoutHook.NotOrderOwner.selector);
+        vm.prank(arber);
+        hook.cancelBatchOrder(key.toId(), epochNow, idx);
+
+        vm.prank(alice);
+        hook.cancelBatchOrder(key.toId(), epochNow, idx);
+        assertEq(currency0.balanceOf(alice), alice0, "cancel returns the deposit");
+
+        uint256 epoch = hook.epochOf(block.timestamp);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MarkoutHook.EpochNotElapsed.selector, (epoch + 1) * hook.SETTLEMENT_DELAY(), block.timestamp
+            )
+        );
+        hook.clearBatch(key, epoch);
+
+        _place(alice, true, 1e17);
+        vm.warp((epoch + 1) * hook.SETTLEMENT_DELAY() + 1);
+        hook.clearBatch(key, epoch);
+        vm.expectRevert(MarkoutHook.EpochAlreadyCleared.selector);
+        hook.clearBatch(key, epoch);
+        vm.prank(alice);
+        vm.expectRevert(MarkoutHook.EpochAlreadyCleared.selector);
+        hook.cancelBatchOrder(key.toId(), epoch, 0);
+    }
+
+    /// @dev Clearing is permissionless and LATE clearing is identical: the
+    /// accumulator's append-only history makes the epoch TWAP immutable.
+    function test_batch_lateClear_samePrice() public {
+        _place(alice, true, 1e18);
+        _place(arber, false, 1e18);
+        uint256 epoch = hook.epochOf(block.timestamp);
+        vm.warp((epoch + 1) * hook.SETTLEMENT_DELAY() + 1);
+
+        // Heavy churn between epoch end and the clear.
+        for (uint256 i; i < 20; ++i) {
+            vm.warp(block.timestamp + 30);
+            _swap(i % 2 == 0 ? alice : arber, i % 2 == 0, -5e16);
+        }
+        vm.warp(block.timestamp + 1 days);
+
+        uint256 alice1 = currency1.balanceOf(alice);
+        uint256 arber0 = currency0.balanceOf(arber);
+        vm.prank(settler);
+        hook.clearBatch(key, epoch);
+
+        // Quiescent-epoch TWAP was 1:1 at seed; churn happened AFTER the
+        // window, so the fills must still be the exact 1:1 net.
+        assertEq(currency1.balanceOf(alice) - alice1, 1e18, "late clear: buyer filled at the immutable TWAP");
+        assertEq(currency0.balanceOf(arber) - arber0, 1e18, "late clear: seller filled at the immutable TWAP");
+    }
+
+    /// @dev Direct-swap output probe (pool math only, no premium) for the
+    /// lone-order bound check.
+    function _quoteDirectSwapOut(bool zeroForOne, uint256 amountIn) internal returns (uint256) {
+        address who = arber;
+        Currency inC = zeroForOne ? currency0 : currency1;
+        Currency outC = zeroForOne ? currency1 : currency0;
+        uint256 before = MockERC20(Currency.unwrap(outC)).balanceOf(who);
+        vm.startPrank(who);
+        genericRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: zeroForOne,
+                amountSpecified: -int256(amountIn),
+                sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            new bytes(0)
+        );
+        vm.stopPrank();
+        return MockERC20(Currency.unwrap(outC)).balanceOf(who) - before;
     }
 }
 

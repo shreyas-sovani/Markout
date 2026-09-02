@@ -4,7 +4,7 @@ const STAGES = [
   { label: "Connect", sub: "wallet" },
   { label: "Mint", sub: "demo tokens" },
   { label: "LP", sub: "or skip" },
-  { label: "Swap", sub: "bond posted" },
+  { label: "Swap", sub: "spot or batch" },
   { label: "Settle", sub: "verdict paid" },
 ];
 

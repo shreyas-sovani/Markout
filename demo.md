@@ -14,13 +14,13 @@ Operator EOA holds faucet tokens and has approved the router. Addresses in READM
 ## Constants
 
 ```bash
-HOOK=0x6432C6e932809499D4Ec267CC41FBE2AEFBa70CC
-ROUTER=0x46415Ef59235f7Abd989E76a2A4952d02A22365e
+HOOK=0x1e9A034b21aB19D00556b429C281f9B29d8BB0Cc
+ROUTER=0xF06737dCbA252D276deCC0f6F0f2102AD20c7535
 PM=0xE03A1074c86CFeDd5C142C4F04F1a1536e203543   # canonical PoolManager
-T0=0x313edAdBF16371068c6b6C6Da89eCe18C6f1B2a4   # MDA (currency0)
-T1=0xA73AEC48FC2A73031e6Cc2c708Dc4a2a9aC86816   # MDB
-K="(0x313edadbf16371068c6b6c6da89ece18c6f1b2a4,0xa73aec48fc2a73031e6cc2c708dc4a2a9ac86816,300,60,0x6432c6e932809499d4ec267cc41fbe2aefba70cc)"
-POOL_ID=0x8a6c41ea819c6378285108c317240a8d2dbe24a9f3b8f747045b19a52e5acefd
+T0=0x41a9c2D06770375A41b94aBC94Bcf0CD14320060   # MDB (currency0)
+T1=0xae0FE2707a76Ec31aB64Dc29557BdBEe9f1a5F5A   # MDA (currency1)
+K="(0x41a9c2d06770375a41b94abc94bcf0cd14320060,0xae0fe2707a76ec31ab64dc29557bdbee9f1a5f5a,300,60,0x1e9a034b21ab19d00556b429c281f9b29d8bb0cc)"
+POOL_ID=0xa6a2c65eeeb6c7d5ada5a00cb42c9b2831795a171331e3c186c8eab9e387937f
 MAX=0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 DL=$(($(date +%s)+3600))
 ```
@@ -157,10 +157,42 @@ cast call $HOOK "pendingDonation(bytes32,uint8)(uint256)" $POOL_ID 0 --rpc-url $
    publishes (`cast mktx --gas-limit 2000000` + explicit nonces) — sequential
    `cast send` calls land 2-3 blocks apart, and under-set mktx gas reverts
    OutOfGas.
-3. **Pool currency ordering.** currency0 = `0x313e…` (numerically smaller).
+3. **Pool currency ordering.** currency0 = `0x41a9…` (MDB — numerically smaller this cut).
 4. **Price limits can't be zero.** Buy → `4295128740` (MIN+1); sell →
    `1461446703485210103287273052203988822378723970340` (MAX−1).
 5. **Settlement before 24 s reverts** `SettlementWindowOpen` — by design.
 6. **Dust swaps revert** (`SwapTooSmall`) once the 20 bps bond rounds to
    zero — inputs below 500 wei.
 7. **`cast send` takes `0xfff…f`, not `max`.**
+
+
+## Run 5 — batch lane: one epoch, one price
+
+```bash
+# approve hook custody, then pre-sign BOTH orders back-to-back so they land
+# in the SAME 24 s epoch (sequential cast sends can straddle the boundary)
+cast send $T0 "approve(address,uint256)" $HOOK 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff --private-key $ACC3_PRIV_KEY --rpc-url $SEP
+cast send $T1 "approve(address,uint256)" $HOOK 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff --private-key $ACC3_PRIV_KEY --rpc-url $SEP
+N=$(cast nonce $(cast wallet address $ACC3_PRIV_KEY) --rpc-url $SEP)
+RAWA=$(cast mktx --gas-limit 300000 --nonce $N     --private-key $ACC3_PRIV_KEY --rpc-url $SEP --gas-price 3000000000 $HOOK "placeBatchOrder((address,address,uint24,int24,address),bool,uint256)" "$K" true  500000000000000000)
+RAWB=$(cast mktx --gas-limit 300000 --nonce $((N+1)) --private-key $ACC3_PRIV_KEY --rpc-url $SEP --gas-price 3000000000 $HOOK "placeBatchOrder((address,address,uint24,int24,address),bool,uint256)" "$K" false 500000000000000000)
+cast publish --rpc-url $SEP $RAWA >/dev/null && cast publish --rpc-url $SEP $RAWB >/dev/null
+EPOCH=$(cast call $HOOK "epochOf(uint256)(uint256)" $(cast block latest --rpc-url $SEP -f timestamp) --rpc-url $SEP | awk '{print $1}')
+sleep 30
+cast send $HOOK "clearBatch((address,address,uint24,int24,address),uint256)" "$K" $((EPOCH)) --gas-limit 3000000 --private-key $ACC3_PRIV_KEY --rpc-url $SEP
+```
+
+**Expected:** `BatchCleared` with one `buyRateX96` and one `sellRateX96` —
+every order on a side filled at the same price, the epoch TWAP clamped by
+realized execution. `settle`-style gas note: pass an explicit `--gas-limit`;
+the inline LP credit inside settle is an external self-call that a bare
+estimate can starve (the permissionless flush covers it either way).
+
+## Batch traps
+
+1. **Epochs are 24 s and cast sends are slow** — two sequential sends can
+   straddle a boundary. Pre-sign both orders with adjacent nonces.
+2. **Value-pair the opposing size at the live price** or the epoch leaves a
+   larger residual swap (which simply pays the premium like any spot swap).
+3. **A lone order is a one-epoch TWAP** — not an auction. That is the
+   product, stated.

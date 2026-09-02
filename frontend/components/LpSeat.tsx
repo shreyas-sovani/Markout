@@ -54,7 +54,7 @@ export function LpSeat() {
 
       <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4">
         <p className="max-w-xl font-sans text-[12.5px] leading-relaxed text-muted">
-          Every sustained one-shot move forfeits its 20 bps bond into this bucket.{" "}
+          Every sustained one-shot move forfeits its premium — credited to in-range LPs in the settle transaction itself while liquidity exists; this bucket only holds the L = 0 deferral.{" "}
           <span className="text-ink">
             <code className="font-mono text-[11.5px]">flushDonation</code> pays it to in-range
             liquidity through v4&apos;s own donate path

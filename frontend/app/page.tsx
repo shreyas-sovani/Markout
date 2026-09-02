@@ -49,7 +49,7 @@ const TICKER = [
   "Live on the canonical Sepolia PoolManager",
   "Any v4 router can pay the bond — no allowlist, no settleFor",
   "24-second fixed window: verdicts can't change with delay",
-  "48 passing Foundry tests incl. canonical fork",
+  "55 passing Foundry tests incl. canonical fork",
   "Toxic one-shot flow pays in-range LPs",
 ];
 
@@ -136,7 +136,7 @@ function HowItWorks() {
       n: "①",
       place: "The swap",
       title: "Bond posted",
-      body: "Swaps fill instantly at 3 bps. The hook charges a 20 bps input bond straight onto the swap caller's own PoolManager delta — any router that can settle a normal v4 swap pays it, no Markout-specific step.",
+      body: "Swaps fill instantly at 3 bps. The hook charges a live-quoted reversion-insurance premium — priced from this pool's own settle history (starts at 20 bps, clamps 5–60) — straight onto the swap caller's own PoolManager delta. Any router that can settle a normal v4 swap pays it; no Markout-specific step.",
       badge: "Any router · canonical PM",
       kind: "brand" as const,
       mini: <SwapMini />,
@@ -313,7 +313,7 @@ function Comparison() {
               <Ledger
                 rows={[
                   ["Advertised fee", "3 bps", "text-ink"],
-                  ["Single-shot arb", "20 bps bond → LPs", "text-brand"],
+                  ["Single-shot arb", "premium → LPs", "text-brand"],
                   ["Organic flow", "bond refunded at settle", "text-brand"],
                   ["LP dividend", "forfeited bonds, flushed in", "text-brand"],
                 ]}
@@ -428,8 +428,12 @@ function HonestLimits() {
       "The measured edge over a vanilla 3 bps pool after identical toxic flow is exactly the forfeited bond — no more. Slow trend flow that never reverts in-window keeps the LP's inventory risk.",
     ],
     [
-      "Flushes pay whoever is in range",
-      "Donations pay the liquidity standing at flush time, not the LPs who carried the inventory through the move. And settle is a permissionless call someone must send — never automatic.",
+      "LPs are credited at settle, not “later”",
+      "While the pool has liquidity, a donate verdict pays in-range LPs inside the settlement transaction itself. Only at zero liquidity does value wait for a permissionless flush — and settle is a call someone must send, never automatic.",
+    ],
+    [
+      "A lone batch order is a TWAP, not CoW",
+      "The opt-in batch lane nets opposing orders in a 24 s epoch and clears everyone at one uniform price. An empty epoch with one order is honestly a one-epoch TWAP fill — no auction, no solver, no partner.",
     ],
   ];
   return (
@@ -443,7 +447,7 @@ function HonestLimits() {
             </h2>
           </div>
         </div>
-        <div className="mt-7 grid gap-4 md:grid-cols-3">
+        <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {limits.map(([t, b]) => (
             <div key={t} className="rounded-xl border border-line bg-card p-5">
               <div className="flex items-start gap-2.5">

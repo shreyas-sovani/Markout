@@ -21,9 +21,20 @@ Wrong addresses/args = broken pool wiring. The `require(address(hook) == predict
 
 ## Current State
 
-Executed successfully 2026-08-31 (hookData-guard cut): tokens `0x313edA…`/`0xA73AEC…`, hook `0x6432C6…`, router `0x46415E…`, all Etherscan-verified; pool seeded 10e18 full-range through the official PositionManager; proof pack: pre-signed buy (block 11607382) + reverse that landed in EXACTLY the next block (11607383) → `Settled(outcome 1 · Refunded)` at settle; unreversed single-shot swap → `Settled(outcome 3 · Donated)` + flush. The 2026-08-27 and 2026-08-25 deployments are STALE. `keeper.sh` pokes/settles/retry-claims/flushes.
+Executed successfully 2026-09-02 (coverage-compatible refactor) via `--broadcast --slow` in ONE pass: tokens `0x41a9c2…`(c0)/`0xae0FE2…`(c1), hook `0x1e9A03…` (deploys its immutable `MarkoutBatchRouter` child `0xC9aaB8…` in the constructor), router `0xF06737…`; all five contracts Etherscan-verified; pool `0xa40dab…` seeded 10e18 full-range through the official PositionManager. Proof pack (all our txs): pre-signed buy 11613731 + 1.01× reverse next block (Δ12 s) → `Settled(outcome 1)` + `RefundClaimed` at settle; unreversed swap → `Settled(outcome 3)` with `DonationFlushed` INSIDE the settle tx; pre-signed buy+sell batch orders in one epoch → `clearBatch` uniform TWAP fill with dust-bounded residual. All earlier deployments stale.
 
 ## Decision Log
+
+### 2026-09-02 — coverage-driven redeploy
+- **Change**: `forge coverage` force-disables optimizer/via_ir; `--ir-minimum` (its suggested workaround) stack-overflowed `clearBatch`. Refactored `clearBatch` into three internal helpers (netting / uniform rates / payout) — behavior identical, suites green, hook size 24,226. Redeployed + reverified + regenerated all three proofs. New gotcha recorded: when pairing a batch sell at the live price, read the SLOT0 base slot for sqrt — reading the liquidity slot (+3) silently produces a ~0 sell amount and the order reverts `SwapTooSmall`.
+- **Task/session**: coverage fix, 2026-09-02.
+
+
+### 2026-09-01 — two-lane deploy: size crisis + gas footgun
+- **Change**: redeployed the two-lane hook. Two new war stories: (1) **EIP-170** — at `optimizer_runs = 44444444` the two-lane hook compiled to 26,825 bytes > 24,576 and forge REFUSED to send ("Unknown2 above the contract size limit") while still printing simulated addresses — always `cast code` the printed addresses before trusting a "successful" run. Fix: `optimizer_runs = 20000` (hook 23,970; 400/100k break v4-core's `Pool.swap` stack). (2) **settle gas** — the inline LP credit is an external self-call inside try/catch; a bare `cast send` estimate can underfund it so the catch silently defers to the pending bucket. The permissionless flush covers the value either way, but proof runs pass `--gas-limit 3000000` explicitly. Also: batch proof orders must be PRE-SIGNED with adjacent nonces — sequential `cast send`s straddle 24 s epoch boundaries.
+- **Reasoning**: `--slow` (sequential sends) now works end-to-end for the 7702-delegated operator; no manual completion needed this time.
+- **Task/session**: two-lane redeploy, 2026-09-01.
+
 
 ### 2026-08-31 — explicit operator + delegated-EOA deploy war stories
 - **Change**: mints/position-owner now use `address operator = vm.addr(pk)` explicitly instead of `msg.sender`. The broadcast was completed MANUALLY after two environment failures: (1) newer forge routes `msg.sender` to `DefaultSender (0x1804…)` during simulation while Permit2 pulls from the broadcaster — the seed reverted `TRANSFER_FROM_FAILED` until recipients were made explicit; (2) the operator EOA carries an **EIP-7702 delegation** (`cast code` shows `0xef0100…`), so publicnode/ethpandaops reject forge's concurrent nonce fan-out with `gapped-nonce tx from delegated accounts` — sequential single txs (or `--slow`) are required. Tokens+hook+router landed via partial forge runs; the remainder (mints, ERC20+Permit2 approvals, PositionManager seed, operator float) ran as sequential `cast send`s, each receipt verified status 0x1.
