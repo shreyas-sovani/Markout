@@ -33,7 +33,7 @@ export function LpSeat() {
           value={
             m.pending0 !== null
               ? hasPending
-                ? `${formatTokens(m.pending0, 3)} MDA${(m.pending1 ?? 0n) > 0n ? ` + ${formatTokens(m.pending1!, 3)} MDB` : ""}`
+                ? `${formatTokens(m.pending0, 3)} MDB${(m.pending1 ?? 0n) > 0n ? ` + ${formatTokens(m.pending1!, 3)} MDA` : ""}`
                 : "0 — nothing waiting"
               : "…"
           }
@@ -48,7 +48,7 @@ export function LpSeat() {
         <SeatStat
           label="current tick"
           value={m.liveTick !== null ? String(m.liveTick) : "…"}
-          sub={`price ${m.price ? m.price.toFixed(5) : "…"} MDB/MDA`}
+          sub={`price ${m.price ? m.price.toFixed(5) : "…"} MDA/MDB`}
         />
       </div>
 

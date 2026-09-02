@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Seal } from "@/components/Brand";
-import { APP_URL, HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER } from "@/lib/contracts";
+import { APP_URL, BATCH_ROUTER, HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER } from "@/lib/contracts";
 
 /**
  * Editorial multi-column footer matching the landing's bordered rhythm.
@@ -47,8 +47,9 @@ export function SiteFooter() {
             items={[
               ["Hook · Sepolia", ex(HOOK)],
               ["Router · Sepolia", ex(ROUTER)],
-              ["Faucet MDA · Sepolia", ex(TOKEN0)],
-              ["Faucet MDB · Sepolia", ex(TOKEN1)],
+              ["Batch child · Sepolia", ex(BATCH_ROUTER)],
+              ["Faucet MDB · token0", ex(TOKEN0)],
+              ["Faucet MDA · token1", ex(TOKEN1)],
             ]}
           />
         </div>

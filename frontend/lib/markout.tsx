@@ -149,7 +149,7 @@ export interface MarkoutState {
   windowOpen: boolean;
   // actions
   busy: string | null;
-  pilot: "refund" | "donate" | null;
+  pilot: "refund" | "donate" | "batch" | null;
   onMint: () => Promise<void>;
   onApproveExact: () => Promise<void>;
   onSwap: () => Promise<void>;
@@ -179,7 +179,7 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
   const [connBusy, setConnBusy] = useState(false);
   const [activeId, setActiveId] = useState<`0x${string}` | null>(null);
   const [tradesVersion, setTradesVersion] = useState(0);
-  const [pilot, setPilot] = useState<"refund" | "donate" | null>(null);
+  const [pilot, setPilot] = useState<"refund" | "donate" | "batch" | null>(null);
   const pilotAbort = useRef(false);
 
   // ---- live pool state ----
@@ -1313,6 +1313,8 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
       ];
       const h = await modifyLiquiditiesTx(actions as `0x${string}`, params);
       await publicClient.waitForTransactionReceipt({ hash: h });
+      window.localStorage.removeItem(`markout:lpTokenId:${address.toLowerCase()}`);
+      setLpTokenId(null);
       sonnerToast.success("Liquidity removed and tokens returned to your wallet.", {
         action: { label: "tx", onClick: () => window.open(explorerTx(h), "_blank") } },
       );
@@ -1342,7 +1344,7 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     setBusy("demo");
     try {
       if ((sellBal ?? 0n) < DEMO_BUY * 2n) {
-        sonnerToast.error("Need ~2 MDA + 1 MDB for the demo — mint first.");
+        sonnerToast.error("Need ~2 MDB + 1 MDA for the demo — mint first.");
         return;
       }
       const approveAll = async (token: `0x${string}`, amt: bigint) => {
@@ -1367,7 +1369,7 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
       await approveAll(TOKEN0, DEMO_BUY + (DEMO_BUY * premiumBps) / 10000n);
       await approveAll(TOKEN1, DEMO_REVERSE + (DEMO_REVERSE * premiumBps) / 10000n);
 
-      sonnerToast.info("DEMO 1/5 — organic swap (1 MDA in)…");
+      sonnerToast.info("DEMO 1/5 — organic swap (1 MDB in)…");
       const first = await doSwapTx(DEMO_BUY, true, 0n);
       setActiveId(first.tradeId);
 
@@ -1416,12 +1418,18 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
   const demoBatchNet = useCallback(async () => {
     if (!address) return;
     pilotAbort.current = false;
-    setPilot("donate");
+    setPilot("batch");
     setBusy("demo");
     try {
-      const buyAmt = 5n * 10n ** 17n; // 0.5 MDA
-      if ((sellBal ?? 0n) < buyAmt) {
-        sonnerToast.error("Need ~0.5 MDA for the batch demo — mint first.");
+      const buyAmt = 5n * 10n ** 17n; // 0.5 MDB (token0, zeroForOne)
+      const b0 = (await publicClient.readContract({
+        address: TOKEN0,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [address],
+      })) as bigint;
+      if (b0 < buyAmt) {
+        sonnerToast.error("Need ~0.5 MDB for the batch demo — mint first.");
         return;
       }
       const p = (await publicClient.readContract({
@@ -1482,10 +1490,38 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     setPilot("donate");
     setBusy("demo");
     try {
-      if ((sellBal ?? 0n) < DEMO_BUY + (DEMO_BUY * premiumBps) / 10000n) {
-        sonnerToast.error("Need ~1.02 MDA for the demo — mint first.");
+      const need = DEMO_BUY + (DEMO_BUY * premiumBps) / 10000n;
+      const b0 = (await publicClient.readContract({
+        address: TOKEN0,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [address],
+      })) as bigint;
+      if (b0 < need) {
+        sonnerToast.error("Need ~1.02 MDB for the demo — mint first.");
         return;
       }
+      const approveAll = async (token: `0x${string}`, amt: bigint) => {
+        const a = (await publicClient.readContract({
+          address: token,
+          abi: ERC20_ABI,
+          functionName: "allowance",
+          args: [address, ROUTER],
+        })) as bigint;
+        if (a < amt) {
+          const wallet = walletClientFrom(getEthereum());
+          const h = await wallet.writeContract({
+            address: token,
+            abi: ERC20_ABI,
+            functionName: "approve",
+            args: [ROUTER, amt],
+            account: address,
+          });
+          await publicClient.waitForTransactionReceipt({ hash: h });
+        }
+      };
+      await approveAll(TOKEN0, need);
+
       sonnerToast.info("DEMO 1/4 — single-shot swap, no reversion behind it…");
       const first = await doSwapTx(DEMO_BUY, true, 0n);
       setActiveId(first.tradeId);
@@ -1504,15 +1540,26 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      sonnerToast.info("DEMO 4/4 — flushing the LP donation…");
-      await onFlush();
+      const pend = (await publicClient.multicall({
+        contracts: [
+          { address: HOOK, abi: HOOK_ABI, functionName: "pendingDonation", args: [POOL_ID, 0] },
+          { address: HOOK, abi: HOOK_ABI, functionName: "pendingDonation", args: [POOL_ID, 1] },
+        ],
+        allowFailure: false,
+      })) as unknown as [bigint, bigint];
+      if (pend[0] === 0n && pend[1] === 0n) {
+        sonnerToast.success("DEMO 4/4 — credited in-range LPs inside settle (nothing left to flush).");
+      } else {
+        sonnerToast.info("DEMO 4/4 — flushing leftover pending (L was 0 at settle)…");
+        await onFlush();
+      }
     } catch (e) {
       sonnerToast.error(`Demo aborted: ${revertReason(e)}`);
     } finally {
       setPilot(null);
       setBusy(null);
     }
-  }, [address, sellBal, doSwapTx, onSettle, onFlush]);
+  }, [address, premiumBps, doSwapTx, onSettle, onFlush]);
 
   const wrongChain = address !== undefined && chainId !== 11155111;
 

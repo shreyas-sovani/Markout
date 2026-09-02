@@ -143,7 +143,7 @@ function SwapPanel() {
               label="You sell"
               value={m.amountStr}
               onChange={m.setAmountStr}
-              token={m.zeroForOne ? "MDA" : "MDB"}
+              token={m.zeroForOne ? "MDB" : "MDA"}
               addr={m.zeroForOne ? TOKEN0 : TOKEN1}
               balance={m.sellBal}
               secondary={
@@ -166,7 +166,7 @@ function SwapPanel() {
             <Field
               label="You buy (est.)"
               value={m.estOut ? formatTokens(m.estOut, 4) : "—"}
-              token={m.zeroForOne ? "MDB" : "MDA"}
+              token={m.zeroForOne ? "MDA" : "MDB"}
               addr={m.zeroForOne ? TOKEN1 : TOKEN0}
               balance={m.buyBal}
               readOnly
@@ -197,7 +197,7 @@ function SwapPanel() {
             <div className="mt-5 grid gap-2.5">
               {m.needApprove && !m.tooSmall && (
                 <Button disabled={m.busy !== null || !m.amountIn} onClick={() => void m.onApproveExact()}>
-                  {m.busy === "approve" ? "Approving…" : "Approve exact (input + bond)"}
+                  {m.busy === "approve" ? "Approving…" : "Approve exact (input + premium)"}
                 </Button>
               )}
               <Button
@@ -206,12 +206,15 @@ function SwapPanel() {
               >
                 {m.busy === "swap" ? "Signing…" : `Swap + post ${m.premiumBps.toString()} bps premium`}
               </Button>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-3 gap-2.5">
                 <Button variant="outline" disabled={m.busy !== null} onClick={() => void m.demoRefund()}>
                   {m.pilot === "refund" ? "Running…" : "Demo: refund"}
                 </Button>
                 <Button variant="outline" disabled={m.busy !== null} onClick={() => void m.demoDonate()}>
                   {m.pilot === "donate" ? "Running…" : "Demo: donate"}
+                </Button>
+                <Button variant="outline" disabled={m.busy !== null} onClick={() => void m.demoBatchNet()}>
+                  {m.pilot === "batch" ? "Running…" : "Demo: batch net"}
                 </Button>
               </div>
             </div>
@@ -321,7 +324,7 @@ function MemoryPanel() {
       </div>
       <CardContent className="p-6 pt-5">
         <div className="mb-4 grid grid-cols-3 gap-3">
-          <Kpi label="pool" value={m.price ? m.price.toFixed(5) : "…"} sub="MDB / MDA" />
+          <Kpi label="pool" value={m.price ? m.price.toFixed(5) : "…"} sub="MDA / MDB" />
           <Kpi label="tick" value={m.liveTick !== null ? String(m.liveTick) : "…"} sub="slot0 live" />
           <Kpi
             label="returned to LPs"
@@ -422,7 +425,7 @@ function MemoryPanel() {
 
             <p className="note mt-3 text-center">
               bond {formatTokens(a.bondAmount, 6)}{" "}
-              {a.bondCurrency.toLowerCase() === TOKEN0.toLowerCase() ? "MDA" : "MDB"} · trade{" "}
+              {a.bondCurrency.toLowerCase() === TOKEN0.toLowerCase() ? "MDB" : "MDA"} · trade{" "}
               {a.id.slice(0, 8)}…{a.id.slice(-4)}
             </p>
           </div>
@@ -562,7 +565,7 @@ function GuideBanner({ step }: { step: number }) {
       window.dispatchEvent(new Event("markout:lp-skipped"));
     }
   };
-  if (step > 2) return null; // past the LP choice — the panels themselves guide
+  if (step > 3) return null; // past swap — settle is on the tape
 
   return (
     <Card className="mb-5 animate-rise overflow-hidden border-brand/30 bg-brand/[0.04]">
@@ -573,14 +576,22 @@ function GuideBanner({ step }: { step: number }) {
           </span>
           <div>
             <div className="font-display text-[19px] font-semibold tracking-tight text-ink">
-              {step === 0 ? "Connect your wallet to begin" : step === 1 ? "Get demo tokens" : "Provide liquidity — or skip to the swap"}
+              {step === 0
+                ? "Connect your wallet to begin"
+                : step === 1
+                  ? "Get demo tokens"
+                  : step === 2
+                    ? "Add liquidity — or skip to the swap"
+                    : "Spot or batch, then settle"}
             </div>
             <div className="font-sans text-[13px] text-muted">
               {step === 0
                 ? "Chrome desktop + MetaMask (or any injected wallet) on Sepolia"
                 : step === 1
                   ? "One click mints 100 MDA + 100 MDB — capped faucet, no seed phrase, no faucet site"
-                  : "Be an LP in this pool through the official v4 PositionManager — forfeited bonds flush to in-range liquidity"}
+                    : step === 2
+                    ? "Be an LP here through the official v4 PositionManager — forfeited premium credits in-range liquidity at settle"
+                    : "One-shot donate into your seat on spot, or net a buy against a sell in the batch lane. Residuals are still a spot swap."}
             </div>
           </div>
         </div>
@@ -592,6 +603,21 @@ function GuideBanner({ step }: { step: number }) {
           <Button size="lg" onClick={() => void m.onMint()} disabled={m.busy !== null}>
             {m.busy === "mint" ? "Minting…" : "Get 100 MDA + 100 MDB"}
           </Button>
+        ) : step === 3 ? (
+          <div className="flex items-center gap-2">
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() =>
+                document.getElementById("batch-panel")?.scrollIntoView({ behavior: "smooth", block: "center" })
+              }
+            >
+              Batch lane ↓
+            </Button>
+            <Button size="lg" disabled={m.busy !== null} onClick={() => void m.demoDonate()}>
+              {m.pilot === "donate" ? "Running…" : "Demo: donate into seat"}
+            </Button>
+          </div>
         ) : (
           <div className="flex items-center gap-2">
             <Button size="lg" variant="outline" onClick={skipLp}>

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { APP_URL, HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER } from "@/lib/contracts";
+import { APP_URL, BATCH_ROUTER, HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER, PROOFS, explorerTx } from "@/lib/contracts";
 
 /**
  * Markout landing: cream paper, ink text, magenta brand, hatch strip + facts
@@ -47,9 +47,9 @@ export default function Landing() {
 
 const TICKER = [
   "Live on the canonical Sepolia PoolManager",
-  "Any v4 router can pay the bond — no allowlist, no settleFor",
-  "24-second fixed window: verdicts can't change with delay",
-  "55 passing Foundry tests incl. canonical fork",
+  "Any v4 router can pay the live premium — no allowlist, no settleFor",
+  "Two lanes on one 24 s clock: spot insurance + batch TWAP netting",
+  "Foundry suites incl. canonical fork and batch-custody invariant",
   "Toxic one-shot flow pays in-range LPs",
 ];
 
@@ -96,14 +96,15 @@ function Hero() {
 
           <h1 className="mt-6 animate-rise font-display text-[40px] font-semibold leading-[1.04] tracking-tightest text-ink [animation-delay:60ms] md:text-[60px] lg:text-[64px]">
             The pool that remembers,{" "}
-            <span className="text-brand">and makes toxic flow pay.</span>
+            <span className="text-brand">on two lanes.</span>
           </h1>
 
           <p className="mx-auto mt-6 max-w-xl animate-rise font-sans text-[16px] leading-relaxed text-ink-soft [animation-delay:120ms] lg:mx-0">
-            Each swap is marked 24 seconds later. If at least half of that swap&apos;s own price
-            impact reverted, the bond returns to the trader at settle. If it stayed,{" "}
-            <strong className="font-semibold text-ink">in-range LPs keep it</strong> — so a
-            volatile pool can quote 3 bps without farming its own liquidity.
+            Spot fills instantly at 3 bps and posts a live-quoted premium. Batch lets opposing
+            orders net at the same 24-second TWAP without touching the curve. If the price
+            stayed,{" "}
+            <strong className="font-semibold text-ink">in-range LPs keep the premium at settle</strong>
+            {" "}— so a volatile pool can quote 3 bps without farming its own liquidity.
           </p>
 
           <div className="mt-8 flex animate-rise flex-wrap items-center justify-center gap-3 [animation-delay:180ms] lg:justify-start">
@@ -135,8 +136,8 @@ function HowItWorks() {
     {
       n: "①",
       place: "The swap",
-      title: "Bond posted",
-      body: "Swaps fill instantly at 3 bps. The hook charges a live-quoted reversion-insurance premium — priced from this pool's own settle history (starts at 20 bps, clamps 5–60) — straight onto the swap caller's own PoolManager delta. Any router that can settle a normal v4 swap pays it; no Markout-specific step.",
+      title: "Premium posted",
+      body: "Spot swaps fill instantly at 3 bps. The hook charges a live-quoted reversion-insurance premium — priced from this pool's own settle history (starts at 20 bps, clamps 5–60) — onto the swap caller's own PoolManager delta. Any router that can settle a normal v4 swap pays it.",
       badge: "Any router · canonical PM",
       kind: "brand" as const,
       mini: <SwapMini />,
@@ -154,10 +155,19 @@ function HowItWorks() {
       n: "③",
       place: "The verdict",
       title: "Refund or Donate",
-      body: "Revert past half your own impact and the bond is refunded in the settlement transaction. Sustain, and it's forfeited to in-range LPs — flushed permissionlessly whenever liquidity exists. One claim path exists, only for failed delivery.",
+      body: "Revert past half your own impact and the premium is refunded in the settlement transaction. Sustain, and in-range LPs are credited in that same settle tx (deferred only if L = 0). One claim path exists, only for failed delivery.",
       badge: "Refund paid at settle",
       kind: "gold" as const,
       mini: <VerdictMini />,
+    },
+    {
+      n: "④",
+      place: "The batch",
+      title: "Net at the TWAP",
+      body: "Opt-in 24 s epochs on the same clock. Opposing orders net without touching the AMM. Unmatched size is one bonded residual — a spot swap with an unbounded price limit, named on the honest-limits row.",
+      badge: "Two-sided nets skip the curve",
+      kind: "brand" as const,
+      mini: <BatchMini />,
     },
   ];
   return (
@@ -165,10 +175,10 @@ function HowItWorks() {
       <div className="mx-auto max-w-content px-5 py-14 md:px-8">
         <Eyebrow>How it works</Eyebrow>
         <h2 className="mt-3 max-w-2xl font-display text-[28px] font-semibold tracking-tight text-ink md:text-[38px]">
-          Bond, memory, verdict.
+          Premium, memory, verdict — plus an opt-in batch lane.
         </h2>
 
-        <div className="mt-10 grid gap-4 md:grid-cols-3">
+        <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {steps.map((s) => (
             <Card key={s.place} className="flex flex-col">
               <CardHeader className="pb-3">
@@ -208,8 +218,8 @@ function SwapMini() {
         </span>
       </div>
       <pre className="overflow-hidden px-3 py-2.5 text-[11px]">
-        <span className="text-brand">bond</span> <span className="text-faint">=</span>{" "}
-        <span className="text-ink">amountIn × 20 bps</span>
+        <span className="text-brand">premium</span> <span className="text-faint">=</span>{" "}
+        <span className="text-ink">amountIn × live bps</span>
         {"\n→ charged to the swap caller"}
         {"\n→ escrowed by the hook"}
       </pre>
@@ -269,6 +279,24 @@ function VerdictMini() {
   );
 }
 
+function BatchMini() {
+  return (
+    <div className="overflow-hidden rounded-md border border-edge bg-secondary/40 font-mono text-[11px] leading-snug text-ink-soft">
+      <div className="flex items-center gap-2 border-b border-edge/40 bg-background/60 px-3 py-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulseSoft" />
+        <span className="font-sans text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
+          clearBatch · uniform TWAP
+        </span>
+      </div>
+      <pre className="overflow-hidden px-3 py-2.5 text-[11px]">
+        two-sided <span className="text-faint">→</span> <span className="text-brand">net, no AMM</span>
+        {"\nlone / leftover "}
+        <span className="text-faint">→</span> <span className="text-ink">bonded residual</span>
+      </pre>
+    </div>
+  );
+}
+
 /* ───────────────────────── comparison ledgers ───────────────────────── */
 
 function Comparison() {
@@ -314,8 +342,8 @@ function Comparison() {
                 rows={[
                   ["Advertised fee", "3 bps", "text-ink"],
                   ["Single-shot arb", "premium → LPs", "text-brand"],
-                  ["Organic flow", "bond refunded at settle", "text-brand"],
-                  ["LP dividend", "forfeited bonds, flushed in", "text-brand"],
+                  ["Organic flow", "premium refunded at settle", "text-brand"],
+                  ["LP dividend", "forfeited premium, credited at settle", "text-brand"],
                 ]}
                 foot={["Net", "tight quotes, toxic flow pays", "text-brand"]}
               />
@@ -323,7 +351,7 @@ function Comparison() {
           </Card>
         </div>
         <p className="mt-4 font-sans text-[12px] text-faint">
-          3 / 20 bps and the 24 s window are demo constants, each a one-line change in the hook.
+          3 bps fill and the 24 s clock are constants. The premium is live-quoted (default 20, clamp 5–60).
         </p>
       </div>
     </section>
@@ -369,11 +397,11 @@ function InkBand() {
     ],
     [
       "Any router, no allowlist",
-      "The bond rides the swap caller's own delta. Universal Router, your contract, v4's own test routers — all pay it unchanged.",
+      "The premium rides the swap caller's own delta. Universal Router, your contract, v4's own test routers — all pay it unchanged.",
     ],
     [
       "Toxic flow pays into the pool",
-      "Sustained one-shot moves forfeit their bond to in-range liquidity on-chain — no off-chain component, no private orderflow, no keepers required for correctness.",
+      "Sustained one-shot moves forfeit their premium to in-range liquidity on-chain — credited at settle when L > 0. No off-chain component, no private orderflow, no keepers required for correctness.",
     ],
     [
       "No partner integrations",
@@ -394,7 +422,7 @@ function InkBand() {
           <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[13.5px] text-gold-bright">
             beforeSwap
           </code>{" "}
-          are common. Markout taxes the informed move itself: it forfeits its bond into the pool
+          are common. Markout taxes the informed move itself: it forfeits its premium into the pool
           it tried to exploit, on the same shared infrastructure every v4 pool uses.
         </p>
 
@@ -424,8 +452,8 @@ function HonestLimits() {
       "The front leg and the victim refund — the backrun leg, unreversed, is what donates. A same-block rule cannot tell an atomic front from a 1:1 next-block organic reversion, so this limit ships named, not hidden.",
     ],
     [
-      "20 bps is a tax, not an LVR hedge",
-      "The measured edge over a vanilla 3 bps pool after identical toxic flow is exactly the forfeited bond — no more. Slow trend flow that never reverts in-window keeps the LP's inventory risk.",
+      "The premium is a tax, not an LVR hedge",
+      "The measured edge over a vanilla 3 bps pool after identical toxic flow is exactly the forfeited premium — no more. Slow trend that never reverts in-window keeps the LP's inventory risk. Dust donates can walk the quote toward 60 bps; refunds walk it back 1 bp at a time.",
     ],
     [
       "LPs are credited at settle, not “later”",
@@ -433,7 +461,11 @@ function HonestLimits() {
     ],
     [
       "A lone batch order is a TWAP, not CoW",
-      "The opt-in batch lane nets opposing orders in a 24 s epoch and clears everyone at one uniform price. An empty epoch with one order is honestly a one-epoch TWAP fill — no auction, no solver, no partner.",
+      "Two-sided epochs net at the TWAP and never touch the curve. An empty epoch with one order is honestly a one-epoch TWAP fill — no auction, no solver, no partner.",
+    ],
+    [
+      "Batch leftover is still a spot swap",
+      "Unmatched size clears as one bonded residual with an unbounded price limit. Cancelled orders cannot move the TWAP; a live residual can be sandwiched like any spot trade. Use two-sided netting when you care.",
     ],
   ];
   return (
@@ -447,7 +479,7 @@ function HonestLimits() {
             </h2>
           </div>
         </div>
-        <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {limits.map(([t, b]) => (
             <div key={t} className="rounded-xl border border-line bg-card p-5">
               <div className="flex items-start gap-2.5">
@@ -481,16 +513,28 @@ const DEPLOYS: { name: string; chain: string; addr: string; href: string }[] = [
     href: `https://sepolia.etherscan.io/address/${ROUTER.toLowerCase()}`,
   },
   {
+    name: "MarkoutBatchRouter",
+    chain: "Sepolia · residual child",
+    addr: BATCH_ROUTER,
+    href: `https://sepolia.etherscan.io/address/${BATCH_ROUTER.toLowerCase()}`,
+  },
+  {
     name: "PoolManager",
     chain: "Sepolia · canonical, shared",
     addr: POOL_MANAGER,
     href: `https://sepolia.etherscan.io/address/${POOL_MANAGER.toLowerCase()}`,
   },
   {
-    name: "Faucet MDA",
-    chain: "Sepolia · capped (MDB sibling)",
+    name: "Faucet MDB · token0",
+    chain: "Sepolia · currency0",
     addr: TOKEN0,
     href: `https://sepolia.etherscan.io/address/${TOKEN0.toLowerCase()}`,
+  },
+  {
+    name: "Faucet MDA · token1",
+    chain: "Sepolia · currency1",
+    addr: TOKEN1,
+    href: `https://sepolia.etherscan.io/address/${TOKEN1.toLowerCase()}`,
   },
 ];
 
@@ -531,25 +575,33 @@ function LiveOnTestnet() {
               </a>
             ))}
           </div>
-          <div className="border-t border-edge px-5 py-3 font-sans text-[12px] text-muted">
-            Fresh proof pack (2026-08-31): a reversion that landed in{" "}
-            <strong>exactly the next block</strong>{" "}
+                    <div className="border-t border-edge px-5 py-3 font-sans text-[12px] text-muted">
+            Proof pack (2026-09-02): next-block reversion{" "}
             <a
               className="text-brand underline-offset-2 hover:underline"
-              href="https://sepolia.etherscan.io/tx/0x3e229140155705e5bfc46deb33ce4699c187603b940bd1b0fb504da7fb3d33b1"
+              href={explorerTx(PROOFS.refundSettle)}
               target="_blank"
               rel="noopener noreferrer"
             >
-              refunded at settlement ↗
-            </a>{" "}
-            and an unreversed single-shot swap{" "}
+              refunded at settle ↗
+            </a>
+            {" "}· unreversed swap{" "}
             <a
               className="text-brand underline-offset-2 hover:underline"
-              href="https://sepolia.etherscan.io/tx/0xf5834a3db146d8de0c218e0034a4fe4c298a9af4879ee2bd569f8fe8b2538031"
+              href={explorerTx(PROOFS.donateSettleCredited)}
               target="_blank"
               rel="noopener noreferrer"
             >
-              donated + flushed ↗
+              donated + credited in settle ↗
+            </a>
+            {" "}· two-sided batch{" "}
+            <a
+              className="text-brand underline-offset-2 hover:underline"
+              href={explorerTx(PROOFS.batchClear)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              cleared at one TWAP ↗
             </a>
             . Open the{" "}
             <a className="text-brand underline-offset-2 hover:underline" href={APP_URL} target="_blank" rel="noopener noreferrer">
@@ -574,7 +626,7 @@ function FinalCta() {
     <section className="border-b border-edge">
       <div className="mx-auto max-w-content px-5 py-16 text-center md:px-8">
         <h2 className="font-display text-[28px] font-semibold tracking-tight text-ink md:text-[36px]">
-          Post a bond. Watch the memory decide.
+          Post a premium. Watch the memory decide.
         </h2>
         <p className="mx-auto mt-3 max-w-xl font-sans text-[15px] leading-relaxed text-muted">
           Mint capped demo tokens, swap through any router you like, and settle the verdict

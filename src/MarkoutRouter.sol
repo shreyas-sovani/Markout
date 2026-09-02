@@ -9,13 +9,15 @@ import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockC
 import {TransientStateLibrary} from "@uniswap/v4-core/src/libraries/TransientStateLibrary.sol";
 
 /// @title MarkoutRouter — a convenience router for Markout pools.
-/// @notice NOT a gate: the bond is charged through the swap caller's own
-/// PoolManager delta by the hook itself, so any router that can settle a
+/// @notice NOT a gate: the live premium is charged through the swap caller's
+/// own PoolManager delta by the hook itself, so any router that can settle a
 /// normal v4 swap (Universal Router, PoolSwapTest, a custom integrator) can
 /// pay it. This contract just adds the protections a serious frontend wants:
 /// a deadline, exact-in minimum output, exact-out maximum input (including
-/// the 20 bps bond), safe token handling, native support, and declaration of
-/// the human beneficiary in hookData so refunds route to the end user.
+/// the hook's live premium — not this contract's BOND_BPS constant), safe
+/// token handling, native support, and declaration of the human beneficiary
+/// in hookData so refunds route to the end user.
+/// `BOND_BPS` is the genesis default (20). The charge is `hook.premiumBps`.
 contract MarkoutRouter is IUnlockCallback {
     using TransientStateLibrary for IPoolManager;
     using CurrencyLibrary for Currency;
@@ -27,6 +29,7 @@ contract MarkoutRouter is IUnlockCallback {
     error TransferFromFailed();
     error NotPoolManager();
 
+    /// Genesis default only. Unused in `swap` — the hook quotes and charges live.
     uint256 public constant BOND_BPS = 20;
     uint256 public constant BPS_DENOMINATOR = 10_000;
 
@@ -45,7 +48,7 @@ contract MarkoutRouter is IUnlockCallback {
 
     /// @notice Swap through a Markout pool.
     /// @param limit   Exact-in: minimum realized output. Exact-out: maximum
-    ///                total input spend including the 20 bps bond.
+    ///                total input spend including the hook's live premium.
     /// @param deadline Latest block timestamp the swap may execute at.
     function swap(PoolKey calldata key, IPoolManager.SwapParams calldata params, uint256 limit, uint256 deadline)
         external

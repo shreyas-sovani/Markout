@@ -76,8 +76,8 @@ cast send $HOOK "settle(bytes32)" $TRADE1 --private-key $ACC3_PRIV_KEY --rpc-url
 ```
 
 **Expected:** one transaction containing `Settled(outcome=1 Refunded)` AND
-`RefundClaimed` — the bond (20 bps of realized input, e.g. 0.001996 MDA for a
-1 MDA swap) is delivered to the trader **at settlement**. No claim
+`RefundClaimed` — the live premium (bps × realized input, e.g. ~0.002 MDB for a
+1 MDB swap at 20 bps genesis) is delivered to the trader **at settlement**. No claim
 transaction exists on this path. Net round-trip cost ≈ the 3 bps swap fees.
 
 If the reversion landed ≥2 blocks late (check block timestamps: Δ > 18 s),
@@ -161,8 +161,8 @@ cast call $HOOK "pendingDonation(bytes32,uint8)(uint256)" $POOL_ID 0 --rpc-url $
 4. **Price limits can't be zero.** Buy → `4295128740` (MIN+1); sell →
    `1461446703485210103287273052203988822378723970340` (MAX−1).
 5. **Settlement before 24 s reverts** `SettlementWindowOpen` — by design.
-6. **Dust swaps revert** (`SwapTooSmall`) once the 20 bps bond rounds to
-   zero — inputs below 500 wei.
+6. **Dust swaps revert** (`SwapTooSmall`) once the live premium (min 5 bps)
+   rounds to zero.
 7. **`cast send` takes `0xfff…f`, not `max`.**
 
 

@@ -29,6 +29,7 @@ export const TOKEN1 = "0xae0Fe2707a76EC31AB64Dc29557bdBEE9f1A5F5A" as const; // 
 export const FEE = 300n; // 3 bps
 export const TICK_SPACING = 60;
 export const SWAP_FEE_BPS = 3n;
+/** Default / genesis premium. Live charge is `premiumBps` on the hook (5–60). */
 export const BOND_BPS = 20n;
 export const SETTLEMENT_DELAY = 24;
 export const MIN_SQRT_PRICE = 4295128741n; // TickMath.MIN_SQRT_PRICE + 1

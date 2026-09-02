@@ -168,18 +168,18 @@ export default function Docs() {
             </p>
             <Callout>
               Honest limits of the batch lane: a lone order in an empty epoch is a one-epoch TWAP
-              fill — not a CoW-style auction, and we do not advertise it as one. One-sided epochs
-              pay the realized execution, not the TWAP. Order positioning inside an epoch is
-              economically empty (the price is time-weighted, not book-ordered — proven by test),
-              and clearing late is identical because the epoch TWAP is immutable in the
-              append-only accumulator.
+              fill — not a CoW-style auction. Cancelled orders cannot move the TWAP (the price is
+              time-weighted, not book-ordered). Unmatched leftover still clears as one bonded
+              residual with an unbounded price limit — that path is a spot swap and can be
+              sandwiched like any other. Two-sided exact nets never hit the curve. Clearing late
+              is identical because the epoch TWAP is immutable in the append-only accumulator.
             </Callout>
           </section>
 
           <section id="any-router">
             <h2>Why any router works</h2>
             <p>
-              Because the bond is part of the swap caller&apos;s own delta, a router settles it the
+              Because the premium is part of the swap caller&apos;s own delta, a router settles it the
               way it settles every other wei it owes: pay your own delta, done. The provided{" "}
               <code>MarkoutRouter</code> is convenience, not a gate — it adds a deadline, exact-in
               minimum output, exact-out maximum input (bond included), strict transfer checks, and
@@ -212,11 +212,13 @@ export default function Docs() {
             </p>
             <Callout>
               What the oracle honestly does not catch: slow trend flow that never reverts
-              in-window, the front leg of an atomic sandwich (the backrun&apos;s reversion refunds
-              it — the backrun leg is what donates), and donations go to whoever is in range at
-              flush, not the specific LPs who carried the inventory. The premium is a
-              deterrent tax on one-shot toxicity, not an LVR hedge — and settle is a
-              transaction someone must send: permissionless, never automatic.
+              in-window, the front leg of an atomic <em>spot</em> sandwich (the backrun&apos;s
+              reversion refunds it — the backrun leg is what donates), a live batch residual
+              (unmatched size is an unbounded-limit spot swap), and donations go to whoever is
+              in range at credit time (settle), not the specific LPs who carried the inventory.
+              Dust donates can walk the live quote toward 60 bps. The premium is a deterrent tax
+              on one-shot toxicity, not an LVR hedge — and settle is a transaction someone must
+              send: permissionless, never automatic.
             </Callout>
           </section>
 

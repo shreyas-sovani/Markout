@@ -1266,10 +1266,11 @@ contract MarkoutTest is Test {
         assertLe(filled, spotOut, "hook never pays above spot execution");
     }
 
-    /// @dev Order positioning inside an epoch is economically empty: placing,
-    /// reordering, and cancelling other orders cannot move anyone else's
-    /// clearing price — the price is time-weighted, not book-ordered.
-    function test_batch_sandwichPositioning_isEmpty() public {
+    /// @dev Cancelled orders cannot move anyone else's clearing price: the
+    /// epoch TWAP is time-weighted, not book-ordered. This is NOT a sandwich
+    /// test — the attacker cancels before clear. Residual AMM sandwiches are
+    /// named in test_batch_residualSpotSwap_inheritsSandwichHonestLimit.
+    function test_batch_cancelledOrders_doNotMoveClearingPrice() public {
         // Baseline epoch: a matched pair nets exactly at the 1:1 TWAP.
         uint256 alice1Before = currency1.balanceOf(alice);
         uint256 arber0Before = currency0.balanceOf(arber);
@@ -1308,6 +1309,34 @@ contract MarkoutTest is Test {
             1e12,
             "counter-side clearing unchanged by attacker positioning"
         );
+    }
+
+    /// @dev HONEST LIMIT. Unmatched batch size executes as one bonded spot
+    /// swap through MarkoutBatchRouter with TickMath min/max ± 1 (unbounded
+    /// price limit). A same-direction spot swap immediately before clear
+    /// worsens the residual fill, exactly as a spot sandwich would. Exact
+    /// two-sided nets never take this path. Do not document cancelled-order
+    /// irrelevance as "the batch lane cannot be sandwiched."
+    function test_batch_residualSpotSwap_inheritsSandwichHonestLimit() public {
+        uint256 alice1Before = currency1.balanceOf(alice);
+        _place(alice, true, 1e18);
+        uint256 epoch = hook.epochOf(block.timestamp);
+        vm.warp((epoch + 1) * hook.SETTLEMENT_DELAY() + 1);
+
+        uint256 snap = vm.snapshotState();
+        vm.prank(settler);
+        hook.clearBatch(key, epoch);
+        uint256 unsandwiched = currency1.balanceOf(alice) - alice1Before;
+        assertGt(unsandwiched, 0, "baseline residual fills");
+
+        bool restored = vm.revertToState(snap);
+        assertTrue(restored, "snapshot restore");
+
+        _swap(arber, true, -3e17); // same direction as residual (sell currency0)
+        vm.prank(settler);
+        hook.clearBatch(key, epoch);
+        uint256 sandwiched = currency1.balanceOf(alice) - alice1Before;
+        assertLt(sandwiched, unsandwiched, "HONEST LIMIT: residual fill is worse after a same-direction spot sandwich");
     }
 
     /// @dev Custody is explicit and cancellable before the clear; after the

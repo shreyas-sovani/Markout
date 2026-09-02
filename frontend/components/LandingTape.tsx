@@ -49,7 +49,7 @@ export function LandingTape() {
 
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-edge bg-secondary/40 px-4 py-2.5 font-mono text-[10.5px] tabular-nums text-ink-soft">
         <span>
-          price {m.price ? m.price.toFixed(5) : "…"} <span className="text-faint">MDB/MDA</span>
+          price {m.price ? m.price.toFixed(5) : "…"} <span className="text-faint">MDA/MDB</span>
         </span>
         <span>
           tick {m.liveTick !== null ? m.liveTick : "…"}

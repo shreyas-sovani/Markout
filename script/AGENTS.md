@@ -21,9 +21,16 @@ Wrong addresses/args = broken pool wiring. The `require(address(hook) == predict
 
 ## Current State
 
-Executed successfully 2026-09-02 (coverage-compatible refactor) via `--broadcast --slow` in ONE pass: tokens `0x41a9c2…`(c0)/`0xae0FE2…`(c1), hook `0x1e9A03…` (deploys its immutable `MarkoutBatchRouter` child `0xC9aaB8…` in the constructor), router `0xF06737…`; all five contracts Etherscan-verified; pool `0xa40dab…` seeded 10e18 full-range through the official PositionManager. Proof pack (all our txs): pre-signed buy 11613731 + 1.01× reverse next block (Δ12 s) → `Settled(outcome 1)` + `RefundClaimed` at settle; unreversed swap → `Settled(outcome 3)` with `DonationFlushed` INSIDE the settle tx; pre-signed buy+sell batch orders in one epoch → `clearBatch` uniform TWAP fill with dust-bounded residual. All earlier deployments stale.
+Executed successfully 2026-09-02 (coverage-compatible refactor) via `--broadcast --slow` in ONE pass: tokens `0x41a9c2…`(MDB, c0)/`0xae0FE2…`(MDA, c1), hook `0x1e9A03…` (immutable `MarkoutBatchRouter` child `0xC9aaB8…`), router `0xF06737…`; all five contracts Etherscan-verified; pool id `0xa6a2c65eeeb6c7d5ada5a00cb42c9b2831795a171331e3c186c8eab9e387937f` seeded 10e18 full-range through the official PositionManager. Proof pack lives in `frontend/lib/contracts.ts` `PROOFS` (refund settle `0xe354716c…`, donate+credit `0xda709887…`, batch clear `0xdb3a18f6…`). All earlier deployments stale. This honesty cut did not redeploy.
 
 ## Decision Log
+
+### 2026-09-02 — Current State pool id corrected (no redeploy)
+- **Change**: Current State pool id `0xa40dab…` (stale 09-01) → live `0xa6a2c6…`. No script change.
+- **Reasoning**: agents reading this file would talk to the wrong pool.
+- **Rejected alternative(s)**: another broadcast (src === bytecode already holds).
+- **Task/session**: critique implementation after two-lane ship.
+
 
 ### 2026-09-02 — coverage-driven redeploy
 - **Change**: `forge coverage` force-disables optimizer/via_ir; `--ir-minimum` (its suggested workaround) stack-overflowed `clearBatch`. Refactored `clearBatch` into three internal helpers (netting / uniform rates / payout) — behavior identical, suites green, hook size 24,226. Redeployed + reverified + regenerated all three proofs. New gotcha recorded: when pairing a batch sell at the live price, read the SLOT0 base slot for sqrt — reading the liquidity slot (+3) silently produces a ~0 sell amount and the order reverts `SwapTooSmall`.

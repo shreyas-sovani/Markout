@@ -6,11 +6,11 @@ Verification suites for the Markout protocol contracts in `src/`.
 
 ## Purpose
 
-Four suites, 55 tests total:
+Four suites, 56 tests total:
 
 - `MarkoutEngine.t.sol` (9) — unit + fuzz tests of the normalized reversion classifier: 50% frontier boundaries in both directions, zero impact, overshoot, tiny fully-reverted trades, large-trade noise, `reversionBps`, formula-vs-reference fuzz, monotonicity-toward-pre fuzz.
-- `Markout.t.sol` (38) — integration + attack tests on a real `PoolManager` with a CREATE2-mined hook: golden refund/donate paths (settle → claim / settle → flush), window + replay + claim guards, spot games, held reversion, zero impact, last-look post-window shove, delayed-settlement outcome equality (refund and donate, with heavy accumulator churn between), history pruning, zero-liquidity donation deferral + reseed + flush, claim reentrancy (`ReenterRefundToken`), spoofed-router + router-lock, hostile-token retryable refunds, native-currency end-to-end (bond escrow, claim, donate flush), router deadline/slippage, exact-out bond math, preview projection/finalization, pool-config rejection, receipt-surface removal, `hookData` beneficiary rules, batched same-unlock swaps (`BatchRouter`), the named atomic-sandwich limit, LP dividend vs a vanilla pool, batch exact-net/partial-net/lone-TWAP, sandwich positioning empty, cancel/guards, late-clear immutability, premium quote==charge with clamps and poke-inertness, LPs credited at settle.
-- `MarkoutFuzz.t.sol` (4 invariants, 256 runs × 500 calls) — handler-based economic invariants: escrow conservation (balances == liabilities per currency), liability identity (open + unclaimed-refund + pending-donation), verdict immutability, bounded per-trade release.
+- `Markout.t.sol` (39) — integration + attack tests on a real `PoolManager` with a CREATE2-mined hook: golden refund/donate paths, window + replay + claim guards, delayed-settlement equality, zero-liquidity deferral, claim reentrancy, native end-to-end, router deadline/slippage, exact-out premium math, `hookData` beneficiary rules, batched same-unlock swaps, named atomic-sandwich limit, LP dividend vs vanilla, batch exact-net/partial-net/lone-TWAP, `test_batch_cancelledOrders_doNotMoveClearingPrice` (cancelled orders ≠ sandwich), `test_batch_residualSpotSwap_inheritsSandwichHonestLimit` (lone residual fill worsens after a same-direction spot swap), cancel/guards, late-clear immutability, premium quote==charge, LPs credited at settle. History-pruning and spoofed-router tests were removed in the 2026-08-27 overhaul (those surfaces no longer exist).
+- `MarkoutFuzz.t.sol` (5 invariants, 256 runs × 500 calls) — escrow coverage, liability identity, verdict immutability, bounded per-trade release, `invariant_batchCustodyCovered`.
 - `MarkoutFork.t.sol` (3) — canonical-Sepolia fork: full lifecycle (init via official PositionManager, Permit2-funded MINT_POSITION + SETTLE_PAIR seeding, exact-in and exact-out swaps, Refund settle + claim, Donate settle + flush) and the frontend's remove path (MINT then DECREASE + CLOSE_CURRENCY ×2 + TAKE_PAIR in one modifyLiquidities) against the real canonical PoolManager `0xE03A…3543` and official PositionManager `0x429ba7…09b4`.
 
 ## What This Controls
@@ -24,9 +24,16 @@ These tests are the only executable spec of the behavioral guarantees. Regressio
 
 ## Current State
 
-55/55 passing (`forge test`), including invariants (256 runs) and the canonical fork suite. Rewritten 2026-08-27 for the overhaul cut; every directive guarantee has a test named after its behavior (`test_bondPayable_genericRouter`, `test_bondPayable_attackerAuthoredRouter`, `test_fullReverseNextBlock_refunds`, `test_reverseAfterWindow_donates`, `test_delayedSettlement_matchesWindowClose`, `test_hookCallbacks_rejectNonPoolManager`, `test_noRouterLock_surface`, `test_faucetMint_doesNotBreakEscrow`, `test_claimExistsOnlyWhenDeliveryFailed`, `test_hookData_beneficiaryRules`, `test_batchedSwaps_sameUnlock_preTicksNotClobbered`, `test_atomicSandwich_sameBlock_frontLegRefunds_honestLimit`, `test_lpDividend_beatsVanillaSameFee`); brick-as-success tests (`historyPruned`, `spoofedRouter`, `initializeRouter_locksForever`) removed.
+56 passing (`forge test`) including invariants (256 runs) and the canonical fork suite. Named guarantees include `test_batch_cancelledOrders_doNotMoveClearingPrice` and `test_batch_residualSpotSwap_inheritsSandwichHonestLimit`. Brick-as-success tests (`historyPruned`, `spoofedRouter`, `initializeRouter_locksForever`) remain deleted.
 
 ## Decision Log
+
+### 2026-09-02 — residual sandwich named, cancel test renamed
+- **Change**: renamed `test_batch_sandwichPositioning_isEmpty` → `test_batch_cancelledOrders_doNotMoveClearingPrice`. Added `test_batch_residualSpotSwap_inheritsSandwichHonestLimit`: snapshot unsandwiched lone-buy residual fill, restore, same-direction `_swap`, clear, assert fill strictly worse. No production residual-limit change.
+- **Reasoning**: the old name claimed sandwiches empty; the test only cancels attacker orders. Judges who grep test names would be misled.
+- **Rejected alternative(s)**: bounding residual `sqrtPriceLimit` (redeploy + can break live one-sided demos).
+- **Task/session**: critique implementation after two-lane ship.
+
 
 ### 2026-08-31 — protocol-holes suite: hookData rules, batch keying, sandwich limit, LP dividend
 - **Change**: four tests + a `BatchRouter` mock. `test_hookData_beneficiaryRules` specs the new beneficiary rule (empty/junk/zero → direct caller; nonzero 32 B honored). `test_batchedSwaps_sameUnlock_preTicksNotClobbered` runs two swaps from one router in a single unlock and asserts trade 2's pre == trade 1's post plus independent verdicts — the transient `(poolId, sender)` slot is written/consumed twice back-to-back. `test_atomicSandwich_sameBlock_frontLegRefunds_honestLimit` names the documented limit: all three legs share one timestamp, the window average reads the post-backrun tick, the front leg refunds, the backrun donates. `test_lpDividend_beatsVanillaSameFee` withdraws identical LP positions from a hook pool and a hookless 3 bps control pool after the same toxic swap; the hook LP ends ~the 20 bps bond ahead.

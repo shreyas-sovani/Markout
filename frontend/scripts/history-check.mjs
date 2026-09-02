@@ -1,11 +1,16 @@
-// Sanity check of the UI history pipeline against the v2 deployment:
+// Sanity check of the UI history pipeline against the 2026-09-02 deployment:
 // chunked getLogs(SwapBonded, trader) + multicall(trades) with property access.
 import { createPublicClient, http, fallback, parseAbiItem, decodeEventLog } from "viem";
 import { sepolia } from "viem/chains";
 
-const HOOK = "0x027C6cfD540f0446641846cd004b41561EEd70cC";
+const HOOK = "0x1e9A034B21Ab19D00556B429C281F9B29d8Bb0cC";
 const TRADER = "0xFeAf5C921996FC53f4DEf35e181E766e6D74690A";
-const RPCS = ["https://ethereum-sepolia-rpc.publicnode.com", "https://sepolia.drpc.org"];
+const RPCS = [
+  process.env.NEXT_PUBLIC_SEPOLIA_RPC,
+  process.env.SEP_RPC_URL,
+  "https://sepolia.gateway.tenderly.co",
+  "https://ethereum-sepolia-rpc.publicnode.com",
+].filter(Boolean);
 
 const HOOK_ABI_EVENT = [
   {

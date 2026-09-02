@@ -17,8 +17,10 @@ export function LpPanel() {
   const a = m.address;
   const hasPosition = m.lpTokenId !== null && (m.lpLiquidity ?? 0n) > 0n;
 
+  const token0Bal = (m.zeroForOne ? m.sellBal : m.buyBal) ?? 0n;
+  const token1Bal = (m.zeroForOne ? m.buyBal : m.sellBal) ?? 0n;
   const defaultAmt = (() => {
-    const bal = m.sellBal ?? 0n;
+    const bal = token0Bal;
     return bal > 10n * 10n ** 18n ? 10n * 10n ** 18n : bal === 0n ? 1n * 10n ** 18n : bal / 2n;
   })();
   const [amt0Str, setAmt0Str] = useState<string>("");
@@ -47,8 +49,8 @@ export function LpPanel() {
     return suggested1;
   })();
 
-  const bal0 = m.sellBal ?? 0n;
-  const bal1 = m.buyBal ?? 0n;
+  const bal0 = token0Bal;
+  const bal1 = token1Bal;
   const enough = amt0 !== null && amt1 !== null && amt0 <= bal0 && amt1 <= bal1;
 
   if (!a || m.wrongChain) return null;
@@ -96,13 +98,13 @@ export function LpPanel() {
         <div className="px-6 py-5">
           <div className="grid gap-3 sm:grid-cols-2">
             <LpAmount
-              label="MDA in"
+              label="MDB in (token0)"
               value={amt0Str || (amt0 ? (Number(amt0) / 1e18).toString() : "")}
               onChange={setAmt0Str}
               balance={bal0}
             />
             <LpAmount
-              label="MDB in (paired)"
+              label="MDA in (token1, paired)"
               value={
                 touched1
                   ? amt1Str

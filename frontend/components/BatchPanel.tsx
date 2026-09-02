@@ -36,7 +36,7 @@ export function BatchPanel() {
   const clearableEpoch = b ? b.epoch - 1n : null;
 
   return (
-    <div className="panel mt-5 overflow-hidden bg-card">
+    <div id="batch-panel" className="panel mt-5 overflow-hidden bg-card">
       <div className="tape flex flex-wrap items-center justify-between gap-2 border-b border-edge px-6 py-3">
         <span>Batch lane — one 24 s epoch, one price</span>
         <span className="font-mono text-[10.5px] text-faint">
@@ -51,8 +51,8 @@ export function BatchPanel() {
           sub={epochDone ? "closed — clearable" : `closes in ${secondsLeft}s · chain time`}
           accent={epochDone}
         />
-        <Stat label="queued buys (MDA in)" value={b ? formatTokens(b.buy0, 3) : "…"} sub="want MDB out" />
-        <Stat label="queued sells (MDB in)" value={b ? formatTokens(b.sell1, 3) : "…"} sub="want MDA out" />
+        <Stat label="queued buys (MDB in)" value={b ? formatTokens(b.buy0, 3) : "…"} sub="want MDA out" />
+        <Stat label="queued sells (MDA in)" value={b ? formatTokens(b.sell1, 3) : "…"} sub="want MDB out" />
         <Stat label="orders" value={b ? b.count.toString() : "…"} sub={`cap 100 · your live: ${m.myOrders.length}`} />
       </div>
 
@@ -73,23 +73,24 @@ export function BatchPanel() {
               disabled={m.busy !== null || !amt || epochDone}
               onClick={() => amt && void m.onBatchPlace(true, amt)}
             >
-              Buy MDB (queue MDA)
+              Buy MDA (queue MDB)
             </Button>
             <Button
               variant="outline"
               disabled={m.busy !== null || !amt || epochDone}
               onClick={() => amt && void m.onBatchPlace(false, amt)}
             >
-              Sell MDB (queue MDB)
+              Buy MDB (queue MDA)
             </Button>
           </div>
           <Button className="mt-2.5 w-full" disabled={m.busy !== null} onClick={() => void m.demoBatchNet()}>
-            {m.busy === "demo" ? "Running…" : "Demo: net a buy + paired sell"}
+            {m.pilot === "batch" || m.busy === "demo" ? "Running…" : "Demo: net a buy + paired sell"}
           </Button>
           <p className="note mt-3">
             Deposit leaves your wallet into the hook until the epoch clears; cancel any time
             before clear. Everyone on a side gets the SAME rate. Honest limits: a lone order is a
-            one-epoch TWAP, not a CoW auction; one-sided epochs pay the realized execution.
+            one-epoch TWAP, not a CoW auction; unmatched leftover is still a sandwichable spot
+            swap with an unbounded price limit. Cancelled orders do not move the TWAP.
           </p>
         </div>
 
@@ -105,8 +106,8 @@ export function BatchPanel() {
                   className="flex items-center justify-between rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[12px] tabular-nums text-ink"
                 >
                   <span>
-                    {o.zeroForOne ? "buy" : "sell"} {formatTokens(o.amountIn, 3)}{" "}
-                    {o.zeroForOne ? "MDA" : "MDB"}
+                    {o.zeroForOne ? "buy MDA" : "buy MDB"} {formatTokens(o.amountIn, 3)}{" "}
+                    {o.zeroForOne ? "MDB" : "MDA"}
                   </span>
                   <button
                     className="font-sans text-[11px] text-rose underline-offset-2 hover:underline"
