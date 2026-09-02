@@ -57,7 +57,7 @@ import {
   walletClientFrom,
   type TradeRow,
 } from "@/lib/contracts";
-import { useWallet, getEthereum } from "@/lib/wallet";
+import { useWallet, getEthereum, walletConnectionErrorMessage } from "@/lib/wallet";
 import { usePoll } from "@/lib/usePoll";
 
 const SWAP_BONDED_EVENT = parseAbiItem(
@@ -868,6 +868,8 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     try {
       const a = await connect();
       if (!a) sonnerToast.error("Wallet connection rejected.");
+    } catch (error) {
+      sonnerToast.error(walletConnectionErrorMessage(error), { duration: 8000 });
     } finally {
       setConnBusy(false);
     }
@@ -1570,7 +1572,11 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
     onConnect,
     onDisconnect: disconnect,
     onSwitchAccount: async () => {
-      await switchAccount();
+      try {
+        await switchAccount();
+      } catch (error) {
+        sonnerToast.error(walletConnectionErrorMessage(error), { duration: 8000 });
+      }
     },
     connBusy,
     switchNetwork,

@@ -15,18 +15,18 @@ export function LandingTape() {
   const hasTrace = m.trace.length > 1;
 
   return (
-    <div className="panel overflow-hidden bg-card">
-      <div className="flex items-center justify-between border-b border-edge px-4 py-2.5">
-        <span className="font-sans text-[11px] font-bold uppercase tracking-[0.16em] text-muted">
-          Live memory tape · MDA / MDB
+    <div className="overflow-hidden rounded-[1.75rem] border border-line bg-card shadow-lift">
+      <div className="flex items-center justify-between border-b border-line bg-ink px-5 py-3.5">
+        <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.14em] text-canvas/60">
+          Live memory / MDA · MDB
         </span>
-        <Badge variant="brand" className="gap-1 px-1.5 py-0 text-[9px]">
-          <span className={`h-1 w-1 rounded-full ${m.rpcOk ? "bg-brand animate-pulseSoft" : "bg-rose"}`} />
+        <Badge variant="brand" className="border-white/10 bg-white/[0.06] text-brand-bright">
+          <span className={`size-1 rounded-full ${m.rpcOk ? "bg-brand-bright animate-pulseSoft" : "bg-rose"}`} />
           {m.rpcOk ? "REC · Sepolia" : "RPC degraded"}
         </Badge>
       </div>
 
-      <div className="px-3 pb-2 pt-3">
+      <div className="surface-grid px-3 pb-3 pt-4 md:px-5">
         {hasTrace ? (
           <MemoryTape
             trace={m.trace}
@@ -47,14 +47,14 @@ export function LandingTape() {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-edge bg-secondary/40 px-4 py-2.5 font-mono text-[10.5px] tabular-nums text-ink-soft">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-line bg-secondary/55 px-5 py-4 font-mono text-[10px] tabular-nums text-ink-soft md:grid-cols-4">
         <span>
           price {m.price ? m.price.toFixed(5) : "…"} <span className="text-faint">MDA/MDB</span>
         </span>
         <span>
           tick {m.liveTick !== null ? m.liveTick : "…"}
         </span>
-        <span className="text-brand">
+        <span className="text-brand-dim">
           {m.traction
             ? `${formatTokens(m.traction.a0 + m.traction.a1, 3)} paid to LPs`
             : "LP dividend…"}

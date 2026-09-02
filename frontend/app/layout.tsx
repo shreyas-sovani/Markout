@@ -1,24 +1,24 @@
 import type { Metadata } from "next";
-import { Fraunces, Hanken_Grotesk, JetBrains_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Manrope, Newsreader } from "next/font/google";
 import "./globals.css";
 import { MarkoutProvider } from "@/lib/markout";
 
-const display = Fraunces({
+const display = Newsreader({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "900"],
+  weight: ["400", "500", "600"],
   style: ["normal", "italic"],
   variable: "--font-display",
   display: "swap",
 });
 
-const sans = Hanken_Grotesk({
+const sans = Manrope({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700", "800"],
   variable: "--font-sans",
   display: "swap",
 });
 
-const mono = JetBrains_Mono({
+const mono = IBM_Plex_Mono({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   variable: "--font-mono",
@@ -41,8 +41,8 @@ export default function RootLayout({
         style={{
           margin: 0,
           minHeight: "100vh",
-          backgroundColor: "#faf8f2",
-          color: "#191710",
+          backgroundColor: "#f7f6f2",
+          color: "#181817",
           fontFamily: "var(--font-sans), system-ui, sans-serif",
         }}
       >

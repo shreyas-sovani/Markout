@@ -36,15 +36,15 @@ export function BatchPanel() {
   const clearableEpoch = b ? b.epoch - 1n : null;
 
   return (
-    <div id="batch-panel" className="panel mt-5 overflow-hidden bg-card">
-      <div className="tape flex flex-wrap items-center justify-between gap-2 border-b border-edge px-6 py-3">
+    <div id="batch-panel" className="panel mt-5 overflow-hidden bg-card p-0">
+      <div className="tape flex flex-wrap items-center justify-between gap-2 border-b border-line px-6 py-3.5">
         <span>Batch lane — one 24 s epoch, one price</span>
         <span className="font-mono text-[10.5px] text-faint">
           opt-in · nets opposing orders · not an order book auction
         </span>
       </div>
 
-      <div className="grid gap-px bg-edge sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-px bg-line sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           label="epoch"
           value={b ? `#${b.epoch.toString()}` : "…"}
@@ -56,11 +56,11 @@ export function BatchPanel() {
         <Stat label="orders" value={b ? b.count.toString() : "…"} sub={`cap 100 · your live: ${m.myOrders.length}`} />
       </div>
 
-      <div className="grid gap-5 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid gap-8 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:px-8 lg:py-8">
         <div>
           <div className="eyebrow">Queue an order (explicit custody)</div>
           <input
-            className="mt-2 w-full rounded-xl border border-line bg-canvas px-4 py-3 font-mono text-[20px] tabular-nums text-ink outline-none placeholder:text-faint"
+            className="mt-2 w-full rounded-xl border border-line bg-secondary/55 px-4 py-3 font-mono text-[20px] tabular-nums text-ink outline-none placeholder:text-faint focus:border-brand focus:bg-card focus:ring-4 focus:ring-brand/10"
             value={amtStr}
             onChange={(e) => setAmtStr(e.target.value)}
             placeholder="0.5"
@@ -103,7 +103,7 @@ export function BatchPanel() {
               {m.myOrders.map((o) => (
                 <li
                   key={o.index.toString()}
-                  className="flex items-center justify-between rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[12px] tabular-nums text-ink"
+                  className="flex items-center justify-between rounded-xl border border-line bg-secondary/55 px-3 py-2.5 font-mono text-[12px] tabular-nums text-ink"
                 >
                   <span>
                     {o.zeroForOne ? "buy MDA" : "buy MDB"} {formatTokens(o.amountIn, 3)}{" "}

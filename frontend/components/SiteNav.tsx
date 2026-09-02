@@ -19,25 +19,22 @@ interface Props {
   rightSlot?: React.ReactNode;
 }
 
-/**
- * Shared site navigation: sticky, hairline-bordered, with active-link
- * highlighting from the route and a mobile drawer via shadcn Sheet.
- */
+/** Shared light navigation with route awareness and a mobile Sheet. */
 export function SiteNav({ sub, links, rightSlot }: Props) {
   const pathname = usePathname();
   const isActive = (href: string) =>
     href.startsWith("/") && !href.startsWith("/#") && (href === "/" ? pathname === "/" : pathname?.startsWith(href));
 
   return (
-    <header className="sticky top-0 z-30 border-b border-edge bg-background/90 backdrop-blur-md">
+    <header className="sticky top-0 z-30 border-b border-line bg-background/95 backdrop-blur-xl">
       <div
-        className="mx-auto flex h-16 max-w-content items-center justify-between px-5 md:px-8"
+        className="mx-auto flex h-[72px] max-w-content items-center justify-between px-5 md:px-8"
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
       >
         <Wordmark sub={sub} />
 
         {/* Desktop nav */}
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
+        <nav className="hidden items-center gap-1 rounded-xl border border-line bg-card/80 p-1 shadow-[0_1px_0_rgba(24,24,23,0.04)] md:flex" aria-label="Primary">
           {links.map((l) => (
             <NavItem key={l.href} link={l} active={isActive(l.href)} />
           ))}
@@ -53,17 +50,17 @@ export function SiteNav({ sub, links, rightSlot }: Props) {
                 <Hamburger />
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="flex flex-col gap-6 pt-12">
+            <SheetContent side="right" className="flex flex-col gap-8 pt-16">
               <SheetHeader>
-                <SheetTitle>Menu</SheetTitle>
+                <SheetTitle>Explore Markout</SheetTitle>
               </SheetHeader>
-              <nav className="flex flex-col gap-1" aria-label="Mobile">
+              <nav className="flex flex-col gap-2" aria-label="Mobile">
                 {links.map((l) => (
                   <SheetClose asChild key={l.href}>
                     <Link
                       href={l.href}
                       className={cn(
-                        "rounded-md px-3 py-2.5 font-sans text-[15px] transition-colors hover:bg-secondary",
+                        "rounded-xl px-4 py-3 font-sans text-[15px] font-medium transition-colors hover:bg-secondary",
                         isActive(l.href) ? "bg-secondary font-semibold text-ink" : "text-ink-soft",
                       )}
                     >
@@ -77,6 +74,7 @@ export function SiteNav({ sub, links, rightSlot }: Props) {
           </Sheet>
         </div>
       </div>
+      <div className="memory-ribbon opacity-30" aria-hidden />
     </header>
   );
 }
@@ -84,10 +82,10 @@ export function SiteNav({ sub, links, rightSlot }: Props) {
 function NavItem({ link, active }: { link: NavLink; active: boolean | undefined }) {
   const isInPage = link.href.startsWith("#");
   const cls = cn(
-    "rounded-md px-3 py-1.5 font-sans text-[14px] transition-colors",
+    "rounded-lg px-3.5 py-2 font-sans text-[12.5px] font-semibold transition-colors",
     active
-      ? "bg-secondary font-semibold text-ink"
-      : "text-ink-soft hover:bg-secondary hover:text-ink",
+      ? "bg-ink text-canvas"
+      : "text-muted hover:bg-secondary hover:text-ink",
   );
   return isInPage ? (
     <a href={link.href} className={cls}>

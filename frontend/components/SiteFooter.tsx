@@ -2,26 +2,26 @@ import Link from "next/link";
 import { Seal } from "@/components/Brand";
 import { APP_URL, BATCH_ROUTER, HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER } from "@/lib/contracts";
 
-/**
- * Editorial multi-column footer matching the landing's bordered rhythm.
- * Server component: pure markup.
- */
+/** Shared protocol footer. Server component: pure markup. */
 export function SiteFooter() {
   const ex = (a: string) => `https://sepolia.etherscan.io/address/${a.toLowerCase()}`;
   return (
-    <footer className="border-t border-edge">
-      <div className="mx-auto max-w-content px-5 py-12 md:px-8">
-        <div className="grid gap-10 sm:grid-cols-2 md:grid-cols-4">
+    <footer className="border-t border-ink bg-ink text-canvas">
+      <div className="memory-ribbon opacity-80" aria-hidden />
+      <div className="mx-auto max-w-content px-5 py-14 md:px-8 md:py-16">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.35fr_0.8fr_0.8fr_1fr]">
           <div className="md:col-span-1">
             <div className="flex items-center gap-3">
               <Seal size={28} />
-              <span className="font-display text-[18px] font-semibold tracking-tightest text-ink">
+              <span className="font-sans text-[17px] font-extrabold tracking-[-0.04em] text-canvas">
                 Markout
               </span>
             </div>
-            <p className="mt-3 font-sans text-[13px] leading-relaxed text-muted">
-              The pool that pays LPs when the price stays — and pays traders back when it
-              doesn&apos;t.
+            <p className="mt-5 max-w-xs font-display text-[25px] font-normal leading-[1.12] tracking-[-0.025em] text-canvas">
+              A pool with a short memory and a long view of liquidity.
+            </p>
+            <p className="mt-4 max-w-xs font-sans text-[12.5px] leading-relaxed text-canvas/55">
+              Price stays: in-range LPs keep the premium. Price reverts: the trader gets it back.
             </p>
           </div>
 
@@ -54,9 +54,9 @@ export function SiteFooter() {
           />
         </div>
 
-        <div className="mt-10 flex flex-col items-start justify-between gap-3 border-t border-edge/30 pt-6 font-sans text-[12px] text-faint sm:flex-row sm:items-center">
+        <div className="mt-12 flex flex-col items-start justify-between gap-3 border-t border-white/15 pt-6 font-sans text-[11.5px] text-canvas/45 sm:flex-row sm:items-center">
           <span>© {new Date().getFullYear()} Markout · UHI10</span>
-          <span className="font-mono">reverted ≥ 50% → refund · sustained → LPs</span>
+          <span className="font-mono text-canvas/65">reverted ≥ 50% → refund · sustained → LPs</span>
         </div>
       </div>
     </footer>
@@ -66,18 +66,18 @@ export function SiteFooter() {
 function FooterCol({ title, items }: { title: string; items: [string, string][] }) {
   return (
     <div>
-      <div className="font-sans text-[11px] font-bold uppercase tracking-[0.18em] text-faint">
+      <div className="font-mono text-[9.5px] font-medium uppercase tracking-[0.14em] text-brand-bright">
         {title}
       </div>
-      <ul className="mt-3 space-y-2 font-sans text-[13.5px]">
+      <ul className="mt-4 flex flex-col gap-2.5 font-sans text-[13px]">
         {items.map(([label, href]) => {
           const ext = href.startsWith("http");
-          const cls = "text-ink-soft transition-colors hover:text-brand";
+          const cls = "text-canvas/65 transition-colors hover:text-canvas";
           return (
             <li key={label}>
               {ext ? (
                 <a href={href} target="_blank" rel="noopener noreferrer" className={cls}>
-                  {label} <span className="text-faint">↗</span>
+                  {label} <span className="text-brand-bright">↗</span>
                 </a>
               ) : (
                 <Link href={href} className={cls}>

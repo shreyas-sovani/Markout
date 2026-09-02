@@ -76,10 +76,10 @@ export function MemoryTape({
   // price axis ticks (5 rounded values)
   const priceTicks = Array.from({ length: 5 }, (_, i) => lo + ((hi - lo) * i) / 4);
 
-  const INK = "#211d14";
-  const SOFT = "#403d33";
-  const MUT = "#8a8278";
-  const LINEC = "#e9e4d6";
+  const INK = "#181817";
+  const SOFT = "#45443f";
+  const MUT = "#9b9991";
+  const LINEC = "#dcdad2";
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Price memory tape" fill="none">
@@ -90,7 +90,7 @@ export function MemoryTape({
       {priceTicks.map((tk, i) => (
         <g key={i}>
           <line x1={L} x2={W - R} y1={y(tk)} y2={y(tk)} stroke={LINEC} strokeWidth="1" />
-          <text x={L - 6} y={y(tk) + 3} textAnchor="end" className="fill-[#9b988c] font-mono text-[9px] tabular-nums">
+          <text x={L - 6} y={y(tk) + 3} textAnchor="end" className="fill-[#9b9991] font-mono text-[9px] tabular-nums">
             {tickToPrice(tk).toFixed(4)}
           </text>
         </g>
@@ -104,8 +104,8 @@ export function MemoryTape({
         [now ?? t0, "now"],
       ].map(([t, label], i) => (
         <g key={i}>
-          <line x1={x(t as number)} x2={x(t as number)} y1={T} y2={H - B} stroke="#f0ebe0" strokeWidth="1" />
-          <text x={x(t as number)} y={H - B + 14} textAnchor="middle" className="fill-[#9b988c] font-mono text-[9px]">
+          <line x1={x(t as number)} x2={x(t as number)} y1={T} y2={H - B} stroke="#efeee8" strokeWidth="1" />
+          <text x={x(t as number)} y={H - B + 14} textAnchor="middle" className="fill-[#9b9991] font-mono text-[9px]">
             {label as string}
           </text>
         </g>
@@ -119,19 +119,19 @@ export function MemoryTape({
             y={T}
             width={Math.max(wx2 - wx1, 2)}
             height={H - T - B}
-            fill="rgba(181,39,111,0.05)"
-            stroke="#B5276F"
+            fill="rgba(217,119,87,0.07)"
+            stroke="#d97757"
             strokeWidth="1"
             strokeDasharray="4 4"
           />
-          <text x={wx1 + 5} y={T - 8} className="fill-[#B5276F] font-mono text-[9.5px]">
+          <text x={wx1 + 5} y={T - 8} className="fill-[#a84f35] font-mono text-[9.5px]">
             bond
           </text>
-          <text x={wx2 - 5} y={T - 8} textAnchor="end" className="fill-[#B5276F] font-mono text-[9.5px]">
+          <text x={wx2 - 5} y={T - 8} textAnchor="end" className="fill-[#a84f35] font-mono text-[9.5px]">
             settleAfter · 24 s
           </text>
           {sweepX !== null && sweepX >= wx1 && (
-            <line x1={sweepX} x2={sweepX} y1={T} y2={H - B} stroke="#B5276F" strokeWidth="1.5" opacity="0.75" />
+            <line x1={sweepX} x2={sweepX} y1={T} y2={H - B} stroke="#d97757" strokeWidth="1.5" opacity="0.8" />
           )}
         </>
       )}
@@ -140,7 +140,7 @@ export function MemoryTape({
       {pre !== null && (
         <>
           <line x1={L} x2={W - R} y1={y(pre)} y2={y(pre)} stroke={MUT} strokeWidth="1" strokeDasharray="5 4" />
-          <text x={W - R - 4} y={y(pre) - 5} textAnchor="end" className="fill-[#6c6a5f] font-mono text-[9.5px]">
+          <text x={W - R - 4} y={y(pre) - 5} textAnchor="end" className="fill-[#6f6e68] font-mono text-[9.5px]">
             pre {tickToPrice(pre).toFixed(5)}
           </text>
         </>
@@ -150,7 +150,7 @@ export function MemoryTape({
       {post !== null && (
         <>
           <line x1={L} x2={W - R} y1={y(post)} y2={y(post)} stroke={INK} strokeWidth="1.4" strokeDasharray="7 4" />
-          <text x={W - R - 4} y={y(post) + 12} textAnchor="end" className="fill-[#403d33] font-mono text-[9.5px]">
+          <text x={W - R - 4} y={y(post) + 12} textAnchor="end" className="fill-[#45443f] font-mono text-[9.5px]">
             post {tickToPrice(post).toFixed(5)}
           </text>
         </>
@@ -159,8 +159,8 @@ export function MemoryTape({
       {/* 50% frontier — arithmetic tick midpoint == half the trade's own impact */}
       {frontier !== null && (
         <>
-          <line x1={L} x2={W - R} y1={y(frontier)} y2={y(frontier)} stroke="#b07f25" strokeWidth="1" strokeDasharray="2 4" />
-          <text x={L + 6} y={y(frontier) - 5} className="fill-[#a07d3a] font-mono text-[9.5px]">
+          <line x1={L} x2={W - R} y1={y(frontier)} y2={y(frontier)} stroke="#b68a3a" strokeWidth="1" strokeDasharray="2 4" />
+          <text x={L + 6} y={y(frontier) - 5} className="fill-[#9a742f] font-mono text-[9.5px]">
             50% frontier {tickToPrice(frontier).toFixed(5)}
           </text>
         </>
@@ -170,8 +170,8 @@ export function MemoryTape({
       {poly && (
         <polyline
           points={poly}
-          stroke="#B5276F"
-          strokeWidth="1.8"
+          stroke="#d97757"
+          strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
@@ -186,14 +186,14 @@ export function MemoryTape({
             x2={wx2 + 9}
             y1={y(windowAvg)}
             y2={y(windowAvg)}
-            stroke={outcome === 3 ? "#b07f25" : SOFT}
+            stroke={outcome === 3 ? "#b68a3a" : SOFT}
             strokeWidth="2.2"
           />
-          <circle cx={wx2} cy={y(windowAvg)} r="4" fill={outcome === 3 ? "#b07f25" : SOFT} />
+          <circle cx={wx2} cy={y(windowAvg)} r="4" fill={outcome === 3 ? "#b68a3a" : SOFT} />
           <text
             x={wx2 + 13}
             y={y(windowAvg) + 3.5}
-            className={outcome === 3 ? "fill-[#a07d3a] font-mono text-[9.5px]" : "fill-[#403d33] font-mono text-[9.5px]"}
+            className={outcome === 3 ? "fill-[#9a742f] font-mono text-[9.5px]" : "fill-[#45443f] font-mono text-[9.5px]"}
           >
             avg {tickToPrice(windowAvg).toFixed(5)}
           </text>
@@ -203,24 +203,24 @@ export function MemoryTape({
       {/* live head dot with halo */}
       {pts.length > 0 && (
         <>
-          <circle cx={x(pts[pts.length - 1].t)} cy={y(pts[pts.length - 1].tick)} r="6" fill="rgba(176,127,37,0.25)" />
-          <circle cx={x(pts[pts.length - 1].t)} cy={y(pts[pts.length - 1].tick)} r="3" fill="#b07f25" />
+          <circle cx={x(pts[pts.length - 1].t)} cy={y(pts[pts.length - 1].tick)} r="7" fill="rgba(217,119,87,0.2)" />
+          <circle cx={x(pts[pts.length - 1].t)} cy={y(pts[pts.length - 1].tick)} r="3" fill="#d97757" />
         </>
       )}
 
       {/* verdict */}
       {outcome === 1 && (
-        <text x={(L + W - R) / 2} y={H - B - 6} textAnchor="middle" className="fill-[#B5276F] font-mono text-[11px] font-semibold">
+        <text x={(L + W - R) / 2} y={H - B - 6} textAnchor="middle" className="fill-[#657464] font-mono text-[11px] font-semibold">
           bond → trader, paid at settle
         </text>
       )}
       {outcome === 3 && (
-        <text x={(L + W - R) / 2} y={H - B - 6} textAnchor="middle" className="fill-[#a07d3a] font-mono text-[11px] font-semibold">
+        <text x={(L + W - R) / 2} y={H - B - 6} textAnchor="middle" className="fill-[#9a742f] font-mono text-[11px] font-semibold">
           bond → in-range LPs
         </text>
       )}
       {outcome === 2 && (
-        <text x={(L + W - R) / 2} y={H - B - 6} textAnchor="middle" className="fill-[#B5276F] font-mono text-[11px] font-semibold">
+        <text x={(L + W - R) / 2} y={H - B - 6} textAnchor="middle" className="fill-[#d97757] font-mono text-[11px] font-semibold">
           refund pending — retry claim
         </text>
       )}

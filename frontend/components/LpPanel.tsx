@@ -69,14 +69,14 @@ export function LpPanel() {
               : null;
 
   return (
-    <div id="lp-panel" className="panel mt-5 overflow-hidden bg-card">
-      <div className="tape flex flex-wrap items-center justify-between gap-2 border-b border-edge px-6 py-3">
+    <div id="lp-panel" className="panel mt-7 overflow-hidden bg-card p-0">
+      <div className="tape flex flex-wrap items-center justify-between gap-2 border-b border-line px-6 py-3.5">
         <span>Your LP seat — official PositionManager</span>
         <span className="font-mono text-[10.5px] text-faint">full range · Permit2 · 3 bps fees + forfeited bonds</span>
       </div>
 
       {hasPosition ? (
-        <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-5">
+        <div className="flex flex-wrap items-center justify-between gap-5 px-6 py-7 md:px-8">
           <div>
             <div className="eyebrow">Your position</div>
             <div className="mt-1 font-mono text-[19px] font-semibold tabular-nums text-ink">
@@ -95,7 +95,7 @@ export function LpPanel() {
           </Button>
         </div>
       ) : (
-        <div className="px-6 py-5">
+        <div className="px-6 py-7 md:px-8">
           <div className="grid gap-3 sm:grid-cols-2">
             <LpAmount
               label="MDB in (token0)"
@@ -157,7 +157,7 @@ function LpAmount({
   balance: bigint;
 }) {
   return (
-    <div className="rounded-xl border border-line bg-canvas p-4">
+    <div className="rounded-xl2 border border-line bg-secondary/55 p-[18px] transition-colors focus-within:border-brand/60 focus-within:bg-card">
       <div className="flex items-baseline justify-between">
         <span className="font-sans text-[10.5px] font-bold uppercase tracking-[0.16em] text-muted">{label}</span>
         <span className="font-sans text-[11px] text-muted">balance {formatTokens(balance, 2)}</span>

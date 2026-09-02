@@ -62,49 +62,113 @@ export default function AppPage() {
         rightSlot={<Connect />}
       />
 
-      <main className="mx-auto max-w-content px-5 py-10 pb-28 md:px-8">
-        <div className="mb-8">
-          <h1 className="font-display text-[34px] font-semibold tracking-tight text-ink md:text-[40px]">
-            The memory console
-          </h1>
-          <p className="mt-2 font-sans text-[14.5px] text-muted">
-            You are the LP here: seed liquidity, then trade the spot lane (instant fill,{" "}
-            {m.premiumBps.toString()} bps live premium) and/or the batch lane (24 s epochs) —{" "}
-            {m.traction
-              ? `${formatTokens(m.traction.a0 + m.traction.a1, 4)} paid to LPs so far`
-              : "returned-to-LPs reading…"}
-            .
-          </p>
+      <main className="pb-28">
+        <section className="border-b border-line bg-card">
+          <div className="section-shell py-10 md:py-14">
+            <div className="grid gap-8 md:grid-cols-[1fr_auto] md:items-end">
+              <div>
+                <span className="section-kicker">Live protocol workspace</span>
+                <h1 className="mt-4 font-display text-[44px] font-normal leading-none tracking-[-0.045em] text-ink md:text-[58px]">
+                  The memory console
+                </h1>
+                <p className="mt-4 max-w-2xl font-sans text-[14px] leading-relaxed text-muted">
+                  Seed liquidity, choose spot or batch, then watch the same 24-second memory
+                  settle the result. Every control below writes to the live Sepolia deployment.
+                </p>
+              </div>
+              <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-line bg-secondary/50">
+                <ConsoleFact label="premium" value={`${m.premiumBps.toString()} bps`} />
+                <ConsoleFact label="window" value="24 s" />
+                <ConsoleFact
+                  label="paid to LPs"
+                  value={m.traction ? formatTokens(m.traction.a0 + m.traction.a1, 3) : "…"}
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div className="section-shell pt-8 md:pt-10">
+          <div className="mb-6">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="eyebrow">Your path through the pool</span>
+              <span className="font-mono text-[9.5px] text-faint">Current step {step + 1} / 5</span>
+            </div>
+            <Pipeline step={step} />
+          </div>
+
+          <NetworkBanner />
+
+          <GuideBanner step={step} />
+
+          <section className="chapter-rule mt-8">
+            <ChapterHeader
+              n="01"
+              label="Trade"
+              title="Choose immediate execution or coordinated flow."
+              body="Spot fills now and posts the live premium. Batch waits one epoch so opposing orders can meet at one price."
+            />
+            <div className="mt-7 grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+              <SwapPanel />
+              <MemoryPanel />
+            </div>
+            <BatchPanel />
+          </section>
+
+          <section className="chapter-rule mt-16">
+            <ChapterHeader
+              n="02"
+              label="Liquidity"
+              title="Take a seat in the pool."
+              body="Add a full-range position through the official PositionManager, then inspect what active liquidity receives."
+            />
+            <LpPanel />
+            <LpSeat />
+          </section>
+
+          <section className="chapter-rule mt-16">
+            <ChapterHeader
+              n="03"
+              label="History"
+              title="Every premium has a terminal outcome."
+              body="Select a trade to return it to the memory tape, settle an expired window, or retry a pending refund."
+            />
+            <Ledger />
+          </section>
         </div>
-
-        <div className="mb-6 animate-rise">
-          <Pipeline step={step} />
-        </div>
-
-        <NetworkBanner />
-
-        <GuideBanner step={step} />
-
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          {/* ── Spot lane ── */}
-          <SwapPanel />
-
-          {/* ── Memory tape panel ── */}
-          <MemoryPanel />
-        </div>
-
-        {/* ── Batch lane ── */}
-        <BatchPanel />
-
-        {/* ── Personal LP seat (add/remove through official PositionManager) ── */}
-        <LpPanel />
-
-        {/* ── LP seat (pool-wide) ── */}
-        <LpSeat />
-
-        {/* ── Ledger ── */}
-        <Ledger />
       </main>
+    </div>
+  );
+}
+
+function ConsoleFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-24 border-r border-line px-4 py-3 last:border-r-0">
+      <div className="font-mono text-[8.5px] uppercase tracking-[0.1em] text-faint">{label}</div>
+      <div className="mt-1 font-mono text-[12px] font-medium tabular-nums text-ink">{value}</div>
+    </div>
+  );
+}
+
+function ChapterHeader({
+  n,
+  label,
+  title,
+  body,
+}: {
+  n: string;
+  label: string;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div className="grid gap-5 md:grid-cols-[80px_1fr_1fr] md:items-end">
+      <span className="font-mono text-[11px] text-brand">{n}</span>
+      <div>
+        <div className="eyebrow">{label}</div>
+        <h2 className="mt-2 font-display text-[29px] font-normal leading-tight tracking-[-0.03em] text-ink">{title}</h2>
+      </div>
+      <p className="font-sans text-[12.5px] leading-relaxed text-muted">{body}</p>
     </div>
   );
 }
@@ -116,14 +180,14 @@ function SwapPanel() {
   const connected = !!m.address;
 
   return (
-    <Card className="overflow-hidden">
-      <div className="tape flex flex-wrap items-center justify-between gap-2 border-b border-edge px-6 py-3">
+    <Card className="overflow-hidden border-line">
+      <div className="tape flex flex-wrap items-center justify-between gap-2 border-b border-line px-6 py-3.5">
         <span>Spot lane · instant fill at 3 bps</span>
         <span className="font-mono text-[10.5px] text-faint">
           premium {m.premiumBps.toString()} bps · live from settle history
         </span>
         {m.address && (m.sellBal ?? 0n) > 0n && (m.buyBal ?? 0n) > 0n && (
-          <span className="rounded-full bg-canvas/15 px-2 py-0.5 text-[10px] tracking-[0.14em]">STEP 3 HERE ↓</span>
+          <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[9px] tracking-[0.1em] text-brand-dim">STEP 3 HERE ↓</span>
         )}
       </div>
       <CardContent className="p-6 pt-5">
@@ -157,7 +221,7 @@ function SwapPanel() {
               <button
                 onClick={() => m.setZeroForOne(!m.zeroForOne)}
                 aria-label="Flip direction"
-                className="grid h-8 w-8 place-items-center rounded-full border border-edge bg-card font-sans text-[13px] text-ink transition-colors hover:bg-secondary"
+                className="grid size-9 place-items-center rounded-xl border border-line bg-card font-sans text-[13px] text-ink shadow-[0_1px_0_rgba(24,24,23,0.05)] transition-colors hover:bg-secondary"
               >
                 ↕
               </button>
@@ -177,7 +241,7 @@ function SwapPanel() {
               <div className="stat-row">
                 <span className="stat-key">slippage tolerance %</span>
                 <input
-                  className="w-16 rounded-md border border-line bg-canvas px-2 py-1 font-mono text-[13px] tabular-nums text-ink focus:border-brand/60 focus:outline-none"
+                  className="w-16 rounded-lg border border-line bg-card px-2 py-1 font-mono text-[13px] tabular-nums text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
                   value={m.slippagePct}
                   onChange={(e) => m.setSlippagePct(e.target.value)}
                   inputMode="decimal"
@@ -265,7 +329,7 @@ function Field({
   secondary?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-line bg-canvas p-4">
+    <div className="rounded-xl2 border border-line bg-secondary/55 p-[18px] transition-colors focus-within:border-brand/60 focus-within:bg-card">
       <div className="flex items-baseline justify-between gap-3">
         <span className="font-sans text-[10.5px] font-bold uppercase tracking-[0.16em] text-muted">
           {label}
@@ -313,11 +377,11 @@ function MemoryPanel() {
   const a = m.active;
 
   return (
-    <Card className="overflow-hidden">
-      <div className="tape flex items-center justify-between border-b border-edge px-6 py-3">
+    <Card className="overflow-hidden border-line">
+      <div className="tape flex items-center justify-between border-b border-line px-6 py-3.5">
         <span>The 24-second memory</span>
         {m.active && m.active.outcome === 0 && (
-          <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] tracking-[0.14em] text-canvas animate-pulseSoft">
+          <span className="rounded-full bg-brand px-2 py-0.5 text-[9px] tracking-[0.1em] text-canvas animate-pulseSoft">
             STEP 4 · SETTLE ↓
           </span>
         )}
@@ -358,7 +422,7 @@ function MemoryPanel() {
               </div>
             )}
             <div className="text-center">
-              <div className="font-display text-[44px] font-semibold leading-none tracking-tight tabular-nums text-ink">
+              <div className="font-display text-[48px] font-normal leading-none tracking-[-0.035em] tabular-nums text-ink">
                 {a.outcome === 1 ? (
                   <span className="text-brand">Refunded</span>
                 ) : a.outcome === 2 ? (
@@ -441,7 +505,7 @@ function MemoryPanel() {
 
 function Kpi({ label, value, sub, accent }: { label: string; value: string; sub: string; accent?: boolean }) {
   return (
-    <div className="rounded-xl border border-line bg-canvas px-3.5 py-3">
+    <div className="rounded-xl border border-line bg-secondary/55 px-3.5 py-3">
       <div className="font-sans text-[10px] font-bold uppercase tracking-[0.14em] text-muted">{label}</div>
       <div className={`mt-1 font-mono text-[16px] font-semibold tabular-nums ${accent ? "text-brand" : "text-ink"}`}>
         {value}
@@ -456,8 +520,8 @@ function Kpi({ label, value, sub, accent }: { label: string; value: string; sub:
 function Ledger() {
   const m = useMarkout();
   return (
-    <Card className="mt-5 overflow-hidden">
-      <div className="tape border-b border-edge px-6 py-3">Ledger · your bonded trades</div>
+    <Card className="mt-7 overflow-hidden border-line">
+      <div className="tape border-b border-line px-6 py-3.5">Ledger · your bonded trades</div>
       {m.trades.length === 0 ? (
         <div className="px-6 py-10 text-center font-sans text-[13px] text-muted">
           {m.address
@@ -465,13 +529,13 @@ function Ledger() {
             : "Connect a wallet to load your trade history."}
         </div>
       ) : (
-        <table className="w-full border-collapse font-sans text-[12.5px]">
+        <table className="ledger-table w-full border-collapse font-sans text-[12.5px]">
           <thead>
-            <tr className="bg-secondary">
+            <tr className="bg-secondary/65">
               {["Trade", "Bond", "Status", "Actions", "Tx"].map((h) => (
                 <th
                   key={h}
-                  className="border-b border-edge px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-muted"
+                  className="border-b border-line px-5 py-3 text-left font-mono text-[9px] font-medium uppercase tracking-[0.1em] text-muted"
                 >
                   {h}
                 </th>
@@ -483,18 +547,18 @@ function Ledger() {
               <tr
                 key={r.id}
                 onClick={() => m.setActiveId(r.id)}
-                className={`cursor-pointer transition-colors hover:bg-secondary/60 ${r.id === m.activeId ? "bg-brand/5" : ""}`}
+                className={`cursor-pointer border-b border-line/70 transition-colors last:border-b-0 hover:bg-secondary/60 ${r.id === m.activeId ? "bg-brand/[0.07]" : ""}`}
               >
-                <td className="px-5 py-3 font-mono text-[12px] tabular-nums text-ink">
+                <td data-label="Trade" className="px-5 py-3 font-mono text-[12px] tabular-nums text-ink">
                   {r.id.slice(0, 8)}…{r.id.slice(-4)}
                 </td>
-                <td className="px-5 py-3 font-mono text-[12px] tabular-nums text-ink-soft">
+                <td data-label="Bond" className="px-5 py-3 font-mono text-[12px] tabular-nums text-ink-soft">
                   {formatTokens(r.bondAmount, 6)}
                 </td>
-                <td className="px-5 py-3">
+                <td data-label="Status" className="px-5 py-3">
                   <OutcomeBadge outcome={r.outcome} claimed={r.refundClaimed} />
                 </td>
-                <td className="px-5 py-3">
+                <td data-label="Actions" className="px-5 py-3">
                   <div className="flex gap-2">
                     {r.outcome === 0 && m.chainNow >= r.settleAfter && (
                       <Button
@@ -526,7 +590,7 @@ function Ledger() {
                     )}
                   </div>
                 </td>
-                <td className="px-5 py-3">
+                <td data-label="Transaction" className="px-5 py-3">
                   <a
                     href={`https://sepolia.etherscan.io/tx/${r.txHash}`}
                     target="_blank"
@@ -568,14 +632,14 @@ function GuideBanner({ step }: { step: number }) {
   if (step > 3) return null; // past swap — settle is on the tape
 
   return (
-    <Card className="mb-5 animate-rise overflow-hidden border-brand/30 bg-brand/[0.04]">
-      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+    <Card className="mb-7 animate-rise overflow-hidden border-brand/25 bg-brand/[0.065] shadow-none">
+      <CardContent className="flex flex-wrap items-center justify-between gap-5 p-5 md:p-6">
         <div className="flex items-center gap-4">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gold font-mono text-[16px] font-semibold text-canvas shadow-[0_0_0_6px_rgba(214,162,63,0.18)] animate-pulseSoft">
+          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand font-mono text-[14px] font-semibold text-canvas shadow-[0_0_0_6px_rgba(217,119,87,0.12)]">
             {step + 1}
           </span>
           <div>
-            <div className="font-display text-[19px] font-semibold tracking-tight text-ink">
+            <div className="font-display text-[22px] font-medium tracking-[-0.02em] text-ink">
               {step === 0
                 ? "Connect your wallet to begin"
                 : step === 1
@@ -646,7 +710,7 @@ function FaucetBlock() {
   if (!empty) return null;
 
   return (
-    <div className="mb-4 rounded-xl border border-gold/40 bg-gold/[0.07] p-4">
+    <div className="mb-4 rounded-xl border border-gold/30 bg-gold/[0.07] p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="eyebrow text-gold">Demo tokens</div>

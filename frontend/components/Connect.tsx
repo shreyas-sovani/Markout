@@ -64,29 +64,29 @@ export function Connect() {
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulseSoft" />
+        <span className="size-1.5 rounded-full bg-sage animate-pulseSoft" />
         <span className="font-mono text-[12.5px] tabular-nums">{short}</span>
-        <span className="text-[10px] text-faint">{open ? "▲" : "▼"}</span>
+        <span className="text-[9px] text-faint">{open ? "↑" : "↓"}</span>
       </Button>
 
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-edge bg-card shadow-lift"
+          className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl2 border border-line bg-card p-1.5 shadow-lift"
         >
-          <div className="border-b border-line px-4 py-2.5 font-mono text-[11px] tabular-nums text-muted">
+          <div className="truncate border-b border-line px-3 py-2.5 font-mono text-[10px] tabular-nums text-muted">
             {address}
           </div>
           <button
             role="menuitem"
-            className="block w-full px-4 py-2.5 text-left font-sans text-[13px] text-ink transition-colors hover:bg-secondary"
+            className="block w-full rounded-lg px-3 py-2.5 text-left font-sans text-[12.5px] text-ink transition-colors hover:bg-secondary"
             onClick={() => void copy()}
           >
             {copied ? "Copied ✓" : "Copy address"}
           </button>
           <button
             role="menuitem"
-            className="block w-full px-4 py-2.5 text-left font-sans text-[13px] text-ink transition-colors hover:bg-secondary"
+            className="block w-full rounded-lg px-3 py-2.5 text-left font-sans text-[12.5px] text-ink transition-colors hover:bg-secondary"
             onClick={() => {
               setOpen(false);
               void onSwitchAccount();
@@ -96,7 +96,7 @@ export function Connect() {
           </button>
           <button
             role="menuitem"
-            className="block w-full px-4 py-2.5 text-left font-sans text-[13px] text-rose transition-colors hover:bg-secondary"
+            className="block w-full rounded-lg px-3 py-2.5 text-left font-sans text-[12.5px] text-rose transition-colors hover:bg-secondary"
             onClick={() => {
               setOpen(false);
               onDisconnect();

@@ -3,12 +3,11 @@ import Link from "next/link";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 
 export const metadata: Metadata = {
   title: "How Markout works · docs",
   description:
-    "The logic behind Markout: the live-quoted reversion-insurance premium, the 24-second fixed window, the 50% reversion frontier, the opt-in batch lane, outcomes, the any-router hook-delta charge, and why there are no partner integrations.",
+    "The logic behind Markout: the live-quoted reversion-insurance premium, the 24-second fixed window, the 50% reversion frontier, the opt-in batch lane, outcomes, and the any-router hook-delta charge.",
 };
 
 export default function Docs() {
@@ -28,20 +27,38 @@ export default function Docs() {
         }
       />
 
-      <main className="mx-auto max-w-3xl px-5 py-14 pb-28 md:px-8">
-        <span className="eyebrow">Documentation</span>
-        <h1 className="mt-3 font-display text-[40px] font-semibold leading-tight tracking-tightest text-ink md:text-[52px]">
-          How Markout works
-        </h1>
-        <p className="mt-4 max-w-2xl font-sans text-[17px] leading-relaxed text-ink-soft">
-          Markout makes toxic one-shot flow pay in-range LPs and refunds organic flow when the
-          price reverts behind it. Here is the whole mechanism — the bond, the window, the
-          frontier, and why any router can pay it.
-        </p>
+      <main className="pb-28">
+        <header className="border-b border-line bg-card">
+          <div className="section-shell py-14 md:py-20">
+            <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
+              <div>
+                <span className="section-kicker">Protocol documentation</span>
+                <h1 className="mt-5 max-w-3xl font-display text-[52px] font-normal leading-[0.96] tracking-[-0.05em] text-ink md:text-[72px]">
+                  A short memory for a precise market question.
+                </h1>
+              </div>
+              <p className="max-w-xl border-l border-line pl-6 font-sans text-[15px] leading-relaxed text-ink-soft">
+                Markout asks what the pool&apos;s price did after a trade. If the move reverted,
+                the premium returns. If it held, active liquidity receives it. This is the
+                mechanism from first swap to terminal verdict.
+              </p>
+            </div>
+          </div>
+        </header>
 
-        <Toc />
+        <div className="section-shell grid gap-10 py-12 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-16 lg:py-16">
+          <aside className="lg:sticky lg:top-28 lg:self-start">
+            <Toc />
+            <div className="mt-5 hidden border-t border-line pt-5 lg:block">
+              <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-faint">Reading note</div>
+              <p className="mt-2 font-sans text-[11.5px] leading-relaxed text-muted">
+                All timing is chain time. All addresses and proof transactions refer to the live
+                canonical Sepolia deployment.
+              </p>
+            </div>
+          </aside>
 
-        <article className="mt-6 prose-doc">
+          <article className="prose-doc min-w-0 max-w-3xl">
           <section id="problem">
             <h2>The problem: one-shot arbitrage</h2>
             <p>
@@ -85,6 +102,12 @@ export default function Docs() {
               pool — poke spam and token gifts cannot move it. <code>premiumQuoteFor</code> is the
               exact rate the next swap charges.
             </p>
+            <Callout>
+              The premium is a deterrent tax on one-shot toxicity, not a complete LVR hedge.
+              Slow trend that never reverts inside the window still leaves LPs with inventory
+              risk. Dust donations can walk the quote toward 60 bps; refunds move it back one
+              basis point at a time.
+            </Callout>
           </section>
 
           <section id="window">
@@ -122,6 +145,12 @@ export default function Docs() {
               came back, you were organic and the bond returns — in the settlement transaction
               itself.</strong>
             </p>
+            <Callout>
+              An atomic spot sandwich remains an honest boundary: the front leg and victim can
+              refund because the backrun restores price; the unreversed backrun leg is what
+              donates. A same-block rule cannot distinguish that front leg from a legitimate
+              one-block reversion.
+            </Callout>
           </section>
 
           <section id="outcomes">
@@ -129,7 +158,9 @@ export default function Docs() {
             <p>
               Settlement is permissionless — anyone calls <code>settle(tradeId)</code> after the
               window — and terminal: the verdict is recorded before any value moves, and{" "}
-              <code>settle</code> credits in-range LPs in the same transaction whenever liquidity exists.
+              <code>settle</code> credits in-range LPs in the same transaction whenever liquidity
+              exists. Permissionless does not mean automatic: someone still has to send the
+              settlement transaction.
             </p>
             <Step n="①" place="outcome 1 · Refunded">
               The oracle said refund and the token delivered. The bond is paid to the trader{" "}
@@ -148,7 +179,8 @@ export default function Docs() {
               itself</strong> through v4&apos;s <code>donate()</code>. Only at zero liquidity does
               the value wait in a per-pool pending bucket for the permissionless{" "}
               <code>flushDonation(poolId)</code>; the settle itself still succeeds and can never
-              brick.
+              brick. Credit goes to whoever is in range at settlement or flush time, not
+              specifically to the LPs who carried inventory through the original move.
             </Step>
           </section>
 
@@ -200,28 +232,6 @@ export default function Docs() {
             </Formula>
           </section>
 
-          <section id="no-partners">
-            <h2>No partner integrations</h2>
-            <p>
-              The toxicity oracle is <strong>entirely hook-local</strong>: pre/post swap ticks plus
-              the hook&apos;s own accumulator. No Chainlink, no Pyth, no off-chain component, no
-              private orderflow, and no keepers required for correctness — the optional{" "}
-              <code>keeper.sh</code> just pokes, settles, retries claims, and flushes on a timer.
-              The deployment targets the <strong>canonical Sepolia PoolManager</strong>, so the
-              hook is a standard v4 citizen on shared infrastructure.
-            </p>
-            <Callout>
-              What the oracle honestly does not catch: slow trend flow that never reverts
-              in-window, the front leg of an atomic <em>spot</em> sandwich (the backrun&apos;s
-              reversion refunds it — the backrun leg is what donates), a live batch residual
-              (unmatched size is an unbounded-limit spot swap), and donations go to whoever is
-              in range at credit time (settle), not the specific LPs who carried the inventory.
-              Dust donates can walk the live quote toward 60 bps. The premium is a deterrent tax
-              on one-shot toxicity, not an LVR hedge — and settle is a transaction someone must
-              send: permissionless, never automatic.
-            </Callout>
-          </section>
-
           <section id="try">
             <h2>Try it</h2>
             <p>
@@ -239,6 +249,7 @@ export default function Docs() {
             </p>
           </section>
         </article>
+        </div>
       </main>
 
       <SiteFooter />
@@ -257,38 +268,39 @@ function Toc() {
     ["outcomes", "Outcomes 1 / 2 / 3"],
     ["batch", "The batch lane"],
     ["any-router", "Any router"],
-    ["no-partners", "No partner integrations"],
     ["try", "Try it"],
   ];
   return (
-    <Card className="mt-8">
-      <CardContent className="p-5">
-        <div className="eyebrow">Contents</div>
-        <ul className="mt-3 grid gap-x-6 gap-y-1.5 font-sans text-[13.5px] sm:grid-cols-2">
-          {items.map(([id, label]) => (
+    <nav aria-label="On this page" className="rounded-xl2 border border-line bg-secondary/55 p-5 lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0">
+        <div className="eyebrow">On this page</div>
+        <ul className="mt-4 grid gap-x-6 gap-y-1 font-sans text-[12.5px] sm:grid-cols-2 lg:grid-cols-1">
+          {items.map(([id, label], i) => (
             <li key={id}>
-              <a href={`#${id}`} className="text-ink-soft transition-colors hover:text-brand">
-                {label}
+              <a href={`#${id}`} className="group flex items-center gap-3 rounded-lg px-2 py-2 text-muted transition-colors hover:bg-card hover:text-ink">
+                <span className="font-mono text-[9px] text-faint group-hover:text-brand">0{i + 1}</span>
+                <span>{label}</span>
               </a>
             </li>
           ))}
         </ul>
-      </CardContent>
-    </Card>
+    </nav>
   );
 }
 
 function Formula({ children }: { children: React.ReactNode }) {
   return (
-    <div className="my-5 rounded-xl border border-line bg-secondary px-5 py-4 font-mono text-[14px] tabular-nums text-brand">
-      {children}
+    <div className="my-7 overflow-hidden rounded-xl2 border border-line bg-ink shadow-card">
+      <div className="memory-ribbon opacity-80" aria-hidden />
+      <div className="px-5 py-5 font-mono text-[13px] leading-relaxed tabular-nums text-brand-bright md:px-6">
+        {children}
+      </div>
     </div>
   );
 }
 
 function Callout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="my-5 rounded-xl border border-brand/25 bg-brand/[0.05] px-5 py-4 font-sans text-[14.5px] leading-relaxed text-ink-soft">
+    <div className="my-7 border-l-2 border-brand bg-brand/[0.055] px-5 py-4 font-sans text-[14px] leading-relaxed text-ink-soft">
       {children}
     </div>
   );
@@ -296,13 +308,13 @@ function Callout({ children }: { children: React.ReactNode }) {
 
 function Step({ n, place, children }: { n: string; place: string; children: React.ReactNode }) {
   return (
-    <div className="my-4 flex gap-4">
-      <span className="font-display text-[24px] leading-none text-gold">{n}</span>
+    <div className="my-4 grid gap-3 rounded-xl border border-line bg-card p-5 shadow-[0_1px_0_rgba(24,24,23,0.04)] sm:grid-cols-[42px_1fr]">
+      <span className="font-mono text-[10px] leading-none text-brand">{n}</span>
       <div>
-        <div className="font-sans text-[11px] font-bold uppercase tracking-[0.18em] text-muted">
+        <div className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-muted">
           {place}
         </div>
-        <p className="mt-1 text-[15px] leading-relaxed text-ink-soft">{children}</p>
+        <p className="mb-0 mt-2 text-[14px] leading-relaxed text-ink-soft">{children}</p>
       </div>
     </div>
   );

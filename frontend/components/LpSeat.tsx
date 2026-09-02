@@ -14,15 +14,15 @@ export function LpSeat() {
   const hasPending = m.pending0 !== null && (m.pending0 > 0n || (m.pending1 ?? 0n) > 0n);
 
   return (
-    <div className="panel mt-5 overflow-hidden bg-card">
-      <div className="tape flex flex-wrap items-center justify-between gap-2 border-b border-edge px-6 py-3">
+    <div className="panel mt-5 overflow-hidden bg-card p-0">
+      <div className="tape flex flex-wrap items-center justify-between gap-2 border-b border-line px-6 py-3.5">
         <span>The LP seat — this is the dividend</span>
         <span className="font-mono text-[10.5px] text-faint">
           sustained moves pay whoever is in range
         </span>
       </div>
 
-      <div className="grid gap-px bg-edge sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-px bg-line sm:grid-cols-2 lg:grid-cols-4">
         <SeatStat
           label="in-range liquidity"
           value={m.poolLiquidity !== null ? formatTokens(m.poolLiquidity, 0) : "…"}
@@ -52,7 +52,7 @@ export function LpSeat() {
         />
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-5 px-6 py-6 md:px-8">
         <p className="max-w-xl font-sans text-[12.5px] leading-relaxed text-muted">
           Every sustained one-shot move forfeits its premium — credited to in-range LPs in the settle transaction itself while liquidity exists; this bucket only holds the L = 0 deferral.{" "}
           <span className="text-ink">

@@ -5,15 +5,11 @@ import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { APP_URL, BATCH_ROUTER, HOOK, ROUTER, TOKEN0, TOKEN1, POOL_MANAGER, PROOFS, explorerTx } from "@/lib/contracts";
 
-/**
- * Markout landing: cream paper, ink text, magenta brand, hatch strip + facts
- * ticker, editorial sections with hairline rules, and a full-bleed ink band
- * for the differentiator.
- */
+/** Markout landing: a light research notebook for a live market memory. */
 export default function Landing() {
   return (
     <div className="relative z-10">
@@ -43,7 +39,7 @@ export default function Landing() {
   );
 }
 
-/* ───────────────────────── top ticker ───────────────────────── */
+/* ───────────────────────── protocol rail ───────────────────────── */
 
 const TICKER = [
   "Live on the canonical Sepolia PoolManager",
@@ -55,26 +51,22 @@ const TICKER = [
 
 function Ticker() {
   return (
-    <>
-      <div className="hatch h-6 border-b border-edge" />
-      <div className="overflow-hidden border-b border-edge bg-background">
-        <div className="flex w-max animate-marquee">
-          {[0, 1].map((copy) => (
-            <div key={copy} aria-hidden={copy === 1} className="flex shrink-0 items-center">
-              {TICKER.map((t) => (
-                <span
-                  key={t}
-                  className="flex items-center gap-2 px-5 py-1.5 font-sans text-[12px] text-ink-soft"
-                >
-                  <span className="text-[13px] leading-none text-gold animate-spinSlow">M</span>
-                  {t}
-                </span>
-              ))}
-            </div>
+    <div className="border-b border-line bg-ink text-canvas">
+      <div className="section-shell flex min-h-9 items-center justify-between gap-6 overflow-hidden">
+        <span className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.12em] text-brand-bright">
+          Markout / Sepolia
+        </span>
+        <div className="flex min-w-0 items-center gap-7 overflow-hidden">
+          {TICKER.slice(0, 3).map((t, i) => (
+            <span key={t} className="hidden shrink-0 items-center gap-2 font-sans text-[10.5px] text-canvas/60 sm:flex">
+              <span className={i === 0 ? "size-1.5 rounded-full bg-sage" : "size-1 rounded-full bg-canvas/30"} />
+              {t}
+            </span>
           ))}
         </div>
+        <span className="shrink-0 font-mono text-[9.5px] text-canvas/45">24 s memory</span>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -82,50 +74,74 @@ function Ticker() {
 
 function Hero() {
   return (
-    <section className="relative overflow-hidden border-b border-edge">
-      <div
-        className="pointer-events-none absolute inset-x-0 -top-24 h-80 opacity-70"
-        style={{ background: "radial-gradient(680px 280px at 68% 0%, rgba(181,39,111,0.12), transparent 70%)" }}
-      />
-      <div className="relative mx-auto grid max-w-content items-center gap-10 px-5 pb-14 pt-14 md:px-8 md:pt-20 lg:grid-cols-[1.05fr_1fr]">
-        <div className="text-center lg:text-left">
-          <Badge variant="brand" className="animate-rise">
-            <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulseSoft" />
-            Uniswap Hookathon · UHI10 · Sustainable Liquidity &amp; MEV Protection
-          </Badge>
+    <section className="relative overflow-hidden border-b border-line">
+      <div className="section-shell relative py-14 md:py-20 lg:py-24">
+        <div className="grid items-end gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:gap-16">
+          <div>
+            <Badge variant="brand" className="animate-rise">
+              <span className="size-1.5 rounded-full bg-brand animate-pulseSoft" />
+              Uniswap Hookathon · UHI10
+            </Badge>
 
-          <h1 className="mt-6 animate-rise font-display text-[40px] font-semibold leading-[1.04] tracking-tightest text-ink [animation-delay:60ms] md:text-[60px] lg:text-[64px]">
-            The pool that remembers,{" "}
-            <span className="text-brand">on two lanes.</span>
-          </h1>
+            <h1 className="mt-8 max-w-[760px] animate-rise font-display text-[52px] font-normal leading-[0.94] tracking-[-0.055em] text-ink [animation-delay:60ms] md:text-[76px] lg:text-[88px]">
+              Liquidity with a{" "}
+              <span className="italic text-brand">short memory.</span>
+            </h1>
 
-          <p className="mx-auto mt-6 max-w-xl animate-rise font-sans text-[16px] leading-relaxed text-ink-soft [animation-delay:120ms] lg:mx-0">
-            Spot fills instantly at 3 bps and posts a live-quoted premium. Batch lets opposing
-            orders net at the same 24-second TWAP without touching the curve. If the price
-            stayed,{" "}
-            <strong className="font-semibold text-ink">in-range LPs keep the premium at settle</strong>
-            {" "}— so a volatile pool can quote 3 bps without farming its own liquidity.
-          </p>
+            <p className="mt-7 max-w-[640px] animate-rise font-sans text-[17px] leading-[1.65] text-ink-soft [animation-delay:120ms] md:text-[18px]">
+              Two lanes share one 24-second view of price. Spot fills now and insures its own
+              impact. Batch lets opposing orders meet at the same TWAP. When a move holds,{" "}
+              <strong className="font-semibold text-ink">the premium goes to in-range LPs.</strong>
+            </p>
 
-          <div className="mt-8 flex animate-rise flex-wrap items-center justify-center gap-3 [animation-delay:180ms] lg:justify-start">
-            <Button asChild size="lg">
-              <Link href="/app">Launch App →</Link>
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <Link href="/docs">Read the docs</Link>
-            </Button>
+            <div className="mt-9 flex animate-rise flex-wrap items-center gap-3 [animation-delay:180ms]">
+              <Button asChild size="lg">
+                <Link href="/app">Open the live console <span aria-hidden>↗</span></Link>
+              </Button>
+              <Button asChild size="lg" variant="outline">
+                <Link href="/docs">Understand the mechanism</Link>
+              </Button>
+            </div>
           </div>
 
-          <p className="mx-auto mt-6 animate-rise font-mono text-[11px] text-faint [animation-delay:240ms] lg:mx-0">
-            live at <a className="text-brand underline-offset-2 hover:underline" href={APP_URL} target="_blank" rel="noopener noreferrer">{APP_URL.replace("https://", "")}</a> · Chrome + MetaMask on Sepolia
-          </p>
+          <div className="animate-rise border-l border-line pl-6 [animation-delay:220ms] lg:pb-2 lg:pl-9">
+            <div className="section-kicker">The thesis</div>
+            <p className="mt-5 font-display text-[28px] font-normal leading-[1.12] tracking-[-0.025em] text-ink md:text-[34px]">
+              A volatile pool should not make every trader pay for the few who move first.
+            </p>
+            <div className="mt-8 grid grid-cols-2 gap-x-6 gap-y-5 border-t border-line pt-5">
+              <HeroFact value="3 bps" label="instant spot fee" />
+              <HeroFact value="5–60" label="live premium, bps" />
+              <HeroFact value="24 s" label="immutable memory" />
+              <HeroFact value="≥ 50%" label="reversion refunds" />
+            </div>
+          </div>
         </div>
 
-        <div className="animate-rise [animation-delay:300ms]">
+        <div className="mt-14 animate-rise [animation-delay:280ms] md:mt-20">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Live pool instrument</span>
+            <span className="font-mono text-[10px] text-faint">
+              No wallet needed · streaming canonical Sepolia slot0
+            </span>
+          </div>
           <LandingTape />
         </div>
+
+        <p className="mt-5 animate-rise font-mono text-[10px] text-faint [animation-delay:340ms]">
+          live at <a className="text-brand-dim underline-offset-4 hover:underline" href={APP_URL} target="_blank" rel="noopener noreferrer">{APP_URL.replace("https://", "")}</a> · Chrome + MetaMask on Sepolia
+        </p>
       </div>
     </section>
+  );
+}
+
+function HeroFact({ value, label }: { value: string; label: string }) {
+  return (
+    <div>
+      <div className="font-mono text-[17px] font-medium tabular-nums text-ink">{value}</div>
+      <div className="mt-1 font-sans text-[10.5px] text-muted">{label}</div>
+    </div>
   );
 }
 
@@ -171,36 +187,41 @@ function HowItWorks() {
     },
   ];
   return (
-    <section id="how" className="border-b border-edge">
-      <div className="mx-auto max-w-content px-5 py-14 md:px-8">
-        <Eyebrow>How it works</Eyebrow>
-        <h2 className="mt-3 max-w-2xl font-display text-[28px] font-semibold tracking-tight text-ink md:text-[38px]">
-          Premium, memory, verdict — plus an opt-in batch lane.
-        </h2>
+    <section id="how" className="border-b border-line bg-card">
+      <div className="section-shell py-16 md:py-24">
+        <div className="grid gap-8 md:grid-cols-[0.8fr_1.2fr] md:gap-16">
+          <div>
+            <Eyebrow>How it works</Eyebrow>
+            <h2 className="mt-4 max-w-sm font-display text-[40px] font-normal leading-[1.02] tracking-[-0.04em] text-ink md:text-[54px]">
+              One clock. Two ways through.
+            </h2>
+          </div>
+          <p className="max-w-xl self-end font-sans text-[15.5px] leading-relaxed text-muted">
+            Spot users get immediate execution with reversion insurance. Batch users opt into
+            an epoch where opposing flow can meet before any residual reaches the curve.
+          </p>
+        </div>
 
-        <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-14 grid border-t border-line md:grid-cols-2">
           {steps.map((s) => (
-            <Card key={s.place} className="flex flex-col">
-              <CardHeader className="pb-3">
+            <article
+              key={s.place}
+              className="grid gap-6 border-b border-line py-8 md:px-8 md:odd:border-r md:odd:pl-0 md:even:pr-0 lg:grid-cols-[1fr_0.8fr] lg:gap-8"
+            >
+              <div>
                 <div className="flex items-center gap-3">
-                  <span className="font-display text-[26px] text-gold">{s.n}</span>
-                  <span className="font-sans text-[11px] font-bold uppercase tracking-[0.18em] text-muted">
-                    {s.place}
-                  </span>
+                  <span className="font-mono text-[10px] text-brand">{s.n}</span>
+                  <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.14em] text-muted">{s.place}</span>
                 </div>
-                <CardTitle className="pt-1 text-[20px]">{s.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-1 flex-col">
-                <p className="note flex-1">{s.body}</p>
-                <div className="mt-4">{s.mini}</div>
-                <Badge variant={s.kind} className="mt-4 w-fit">
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${s.kind === "brand" ? "bg-brand animate-pulseSoft" : "bg-gold"}`}
-                  />
+                <h3 className="mt-3 font-display text-[28px] font-medium leading-tight tracking-[-0.025em] text-ink">{s.title}</h3>
+                <p className="mt-3 font-sans text-[12.5px] leading-relaxed text-muted">{s.body}</p>
+                <Badge variant={s.kind} className="mt-5 w-fit">
+                  <span className={`size-1.5 rounded-full ${s.kind === "brand" ? "bg-brand" : "bg-gold"}`} />
                   {s.badge}
                 </Badge>
-              </CardContent>
-            </Card>
+              </div>
+              <div className="self-center">{s.mini}</div>
+            </article>
           ))}
         </div>
       </div>
@@ -301,25 +322,26 @@ function BatchMini() {
 
 function Comparison() {
   return (
-    <section className="border-b border-edge">
-      <div className="mx-auto max-w-content px-5 py-14 md:px-8">
-        <Eyebrow>The trade-off</Eyebrow>
-        <h2 className="mt-3 max-w-2xl font-display text-[28px] font-semibold tracking-tight text-ink md:text-[38px]">
-          Vanilla AMM vs Markout LP.
-        </h2>
-        <p className="mt-4 max-w-2xl prose-doc">
-          A volatile pool either charges enough fee to cover toxic flow, or it bleeds. Markout
-          makes the toxic flow itself pay, so the advertised fee can stay tight.
-        </p>
+    <section className="border-b border-line bg-secondary/55">
+      <div className="section-shell py-16 md:py-24">
+        <div className="grid gap-8 lg:grid-cols-[0.7fr_1.3fr] lg:gap-16">
+          <div>
+            <Eyebrow>The trade-off</Eyebrow>
+            <h2 className="mt-4 font-display text-[40px] font-normal leading-[1.02] tracking-[-0.04em] text-ink md:text-[52px]">
+              Tight quotes without pretending toxic flow is free.
+            </h2>
+            <p className="mt-5 font-sans text-[14px] leading-relaxed text-muted">
+              A volatile pool either charges everyone enough to cover informed flow, or it
+              bleeds. Markout asks the move that stays to fund the difference.
+            </p>
+          </div>
 
-        <div className="mt-10 grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-[13px] font-semibold text-muted">
-                <span className="h-2 w-2 rounded-full bg-rose" /> Vanilla AMM LP
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+          <div className="grid overflow-hidden rounded-xl2 border border-line bg-card shadow-card md:grid-cols-2">
+            <div className="p-6 md:border-r md:border-line md:p-8">
+              <div className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-muted">
+                <span className="size-2 rounded-full bg-rose" /> Vanilla AMM LP
+              </div>
+              <div className="mt-6">
               <Ledger
                 rows={[
                   ["Advertised fee", "high, to cover toxicity", "text-ink"],
@@ -329,15 +351,13 @@ function Comparison() {
                 ]}
                 foot={["Net", "tight quotes impossible", "text-rose"]}
               />
-            </CardContent>
-          </Card>
-          <Card className="bg-secondary/40">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-[13px] font-semibold text-brand">
+              </div>
+            </div>
+            <div className="border-t border-line bg-secondary/45 p-6 md:border-t-0 md:p-8">
+              <div className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-brand-dim">
                 <Seal size={20} /> Markout LP
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+              </div>
+              <div className="mt-6">
               <Ledger
                 rows={[
                   ["Advertised fee", "3 bps", "text-ink"],
@@ -347,10 +367,11 @@ function Comparison() {
                 ]}
                 foot={["Net", "tight quotes, toxic flow pays", "text-brand"]}
               />
-            </CardContent>
-          </Card>
+              </div>
+            </div>
+          </div>
         </div>
-        <p className="mt-4 font-sans text-[12px] text-faint">
+        <p className="mt-5 font-mono text-[10px] text-faint lg:ml-[calc(35%+2rem)]">
           3 bps fill and the 24 s clock are constants. The premium is live-quoted (default 20, clamp 5–60).
         </p>
       </div>
@@ -409,33 +430,33 @@ function InkBand() {
     ],
   ];
   return (
-    <section className="border-b border-edge bg-foreground text-background">
-      <div className="mx-auto max-w-content px-5 py-16 md:px-8">
-        <span className="font-sans text-[11px] font-bold uppercase tracking-[0.22em] text-gold-bright">
+    <section className="border-b border-ink bg-ink text-canvas">
+      <div className="memory-ribbon opacity-80" aria-hidden />
+      <div className="section-shell py-16 md:py-24">
+        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-brand-bright">
           The differentiator
         </span>
-        <h2 className="mt-3 max-w-2xl font-display text-[28px] font-semibold tracking-tight text-background md:text-[40px]">
-          Toxic flow pays in-range LPs. On the canonical pool.
+        <h2 className="mt-5 max-w-3xl font-display text-[42px] font-normal leading-[1.02] tracking-[-0.04em] text-canvas md:text-[58px]">
+          The move that stays pays the liquidity it used.
         </h2>
-        <p className="mt-4 max-w-2xl font-sans text-[15.5px] leading-relaxed text-background/75">
+        <p className="mt-6 max-w-2xl font-sans text-[15px] leading-relaxed text-canvas/65">
           Directional fees in{" "}
-          <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[13.5px] text-gold-bright">
+          <code className="rounded-md border border-white/15 bg-white/[0.06] px-1.5 py-0.5 font-mono text-[12.5px] text-brand-bright">
             beforeSwap
           </code>{" "}
           are common. Markout taxes the informed move itself: it forfeits its premium into the pool
           it tried to exploit, on the same shared infrastructure every v4 pool uses.
         </p>
 
-        <div className="mt-10 grid gap-4 sm:grid-cols-2">
-          {points.map(([t, b]) => (
-            <Card key={t} className="border-white/15 bg-white/[0.04]">
-              <CardContent className="p-6">
-                <div className="font-sans text-[15px] font-semibold text-background">{t}</div>
-                <p className="mt-1.5 font-sans text-[13px] leading-relaxed text-background/65">
+        <div className="mt-12 grid border-t border-white/15 sm:grid-cols-2">
+          {points.map(([t, b], i) => (
+            <div key={t} className="border-b border-white/15 py-7 sm:px-7 sm:odd:border-r sm:odd:pl-0 sm:even:pr-0">
+                <div className="font-mono text-[9.5px] text-brand-bright">0{i + 1}</div>
+                <div className="mt-3 font-sans text-[14px] font-semibold text-canvas">{t}</div>
+                <p className="mt-2 font-sans text-[12.5px] leading-relaxed text-canvas/55">
                   {b}
                 </p>
-              </CardContent>
-            </Card>
+            </div>
           ))}
         </div>
       </div>
@@ -469,28 +490,28 @@ function HonestLimits() {
     ],
   ];
   return (
-    <section className="border-b border-edge bg-secondary/30">
-      <div className="mx-auto max-w-content px-5 py-12 md:px-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+    <section className="border-b border-line bg-card">
+      <div className="section-shell py-16 md:py-24">
+        <div className="grid gap-8 md:grid-cols-[0.7fr_1.3fr] md:gap-16">
           <div>
             <Eyebrow>Honest limits</Eyebrow>
-            <h2 className="mt-3 font-display text-[24px] font-semibold tracking-tight text-ink md:text-[30px]">
-              What this hook does not do.
+            <h2 className="mt-4 font-display text-[38px] font-normal leading-[1.04] tracking-[-0.035em] text-ink md:text-[48px]">
+              Named boundaries, not hidden caveats.
             </h2>
+            <p className="mt-5 font-sans text-[13px] leading-relaxed text-muted">
+              Markout is a precise mechanism with precise edges. These are part of the product,
+              not fine print.
+            </p>
           </div>
-        </div>
-        <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {limits.map(([t, b]) => (
-            <div key={t} className="rounded-xl border border-line bg-card p-5">
-              <div className="flex items-start gap-2.5">
-                <span className="mt-0.5 font-mono text-[13px] text-rose">✕</span>
-                <div>
-                  <div className="font-sans text-[13.5px] font-semibold text-ink">{t}</div>
-                  <p className="mt-1.5 font-sans text-[12.5px] leading-relaxed text-muted">{b}</p>
-                </div>
+          <div className="border-t border-line">
+            {limits.map(([t, b], i) => (
+              <div key={t} className="grid gap-3 border-b border-line py-6 sm:grid-cols-[36px_0.65fr_1.35fr] sm:gap-6">
+                <span className="font-mono text-[10px] text-rose">0{i + 1}</span>
+                <div className="font-sans text-[13.5px] font-semibold text-ink">{t}</div>
+                <p className="font-sans text-[12.5px] leading-relaxed text-muted">{b}</p>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </section>
@@ -540,13 +561,13 @@ const DEPLOYS: { name: string; chain: string; addr: string; href: string }[] = [
 
 function LiveOnTestnet() {
   return (
-    <section id="live" className="border-b border-edge">
-      <div className="mx-auto max-w-content px-5 py-14 md:px-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+    <section id="live" className="border-b border-line bg-secondary/55">
+      <div className="section-shell py-16 md:py-24">
+        <div className="grid gap-6 md:grid-cols-[1fr_auto] md:items-end">
           <div>
             <Eyebrow>Live on testnet</Eyebrow>
-            <h2 className="mt-3 font-display text-[28px] font-semibold tracking-tight text-ink md:text-[36px]">
-              Deployed, and verifiable on-chain.
+            <h2 className="mt-4 max-w-2xl font-display text-[40px] font-normal leading-[1.04] tracking-[-0.04em] text-ink md:text-[52px]">
+              Read the proof, then use the pool.
             </h2>
           </div>
           <Badge variant="brand">
@@ -555,30 +576,30 @@ function LiveOnTestnet() {
           </Badge>
         </div>
 
-        <Card className="mt-8 overflow-hidden">
-          <div className="grid divide-y divide-edge sm:grid-cols-2 sm:divide-x">
+        <Card className="mt-10 overflow-hidden border-line">
+          <div className="grid divide-y divide-line sm:grid-cols-2 sm:divide-x lg:grid-cols-3">
             {DEPLOYS.map((d) => (
               <a
                 key={d.name}
                 href={d.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group flex items-center justify-between gap-4 p-5 transition-colors hover:bg-secondary/50"
+                className="group flex min-h-24 items-center justify-between gap-4 p-5 transition-colors hover:bg-secondary/70"
               >
                 <span>
-                  <span className="block font-sans text-[14px] font-semibold text-ink">
+                  <span className="block font-sans text-[13px] font-semibold text-ink">
                     {d.name}
                   </span>
                   <span className="block font-sans text-[11.5px] text-faint">{d.chain}</span>
                 </span>
-                <span className="addr">{short(d.addr)}</span>
+                <span className="addr rounded-lg border border-line bg-secondary/50 px-2 py-1">{short(d.addr)}</span>
               </a>
             ))}
           </div>
-                    <div className="border-t border-edge px-5 py-3 font-sans text-[12px] text-muted">
+          <div className="border-t border-line bg-ink px-5 py-4 font-sans text-[11.5px] leading-relaxed text-canvas/60">
             Proof pack (2026-09-02): next-block reversion{" "}
             <a
-              className="text-brand underline-offset-2 hover:underline"
+              className="text-brand-bright underline-offset-4 hover:underline"
               href={explorerTx(PROOFS.refundSettle)}
               target="_blank"
               rel="noopener noreferrer"
@@ -587,7 +608,7 @@ function LiveOnTestnet() {
             </a>
             {" "}· unreversed swap{" "}
             <a
-              className="text-brand underline-offset-2 hover:underline"
+              className="text-brand-bright underline-offset-4 hover:underline"
               href={explorerTx(PROOFS.donateSettleCredited)}
               target="_blank"
               rel="noopener noreferrer"
@@ -596,7 +617,7 @@ function LiveOnTestnet() {
             </a>
             {" "}· two-sided batch{" "}
             <a
-              className="text-brand underline-offset-2 hover:underline"
+              className="text-brand-bright underline-offset-4 hover:underline"
               href={explorerTx(PROOFS.batchClear)}
               target="_blank"
               rel="noopener noreferrer"
@@ -604,7 +625,7 @@ function LiveOnTestnet() {
               cleared at one TWAP ↗
             </a>
             . Open the{" "}
-            <a className="text-brand underline-offset-2 hover:underline" href={APP_URL} target="_blank" rel="noopener noreferrer">
+            <a className="text-brand-bright underline-offset-4 hover:underline" href={APP_URL} target="_blank" rel="noopener noreferrer">
               hosted app ↗
             </a>{" "}
             · demo video — coming, human-recorded.
@@ -623,23 +644,25 @@ function short(addr: string) {
 
 function FinalCta() {
   return (
-    <section className="border-b border-edge">
-      <div className="mx-auto max-w-content px-5 py-16 text-center md:px-8">
-        <h2 className="font-display text-[28px] font-semibold tracking-tight text-ink md:text-[36px]">
-          Post a premium. Watch the memory decide.
-        </h2>
-        <p className="mx-auto mt-3 max-w-xl font-sans text-[15px] leading-relaxed text-muted">
-          Mint capped demo tokens, swap through any router you like, and settle the verdict
-          yourself. Best in Chrome desktop with MetaMask (or any injected wallet) on Sepolia —
-          no faucet site, no partner keys.
-        </p>
-        <div className="mt-7 flex justify-center gap-3">
+    <section className="border-b border-line bg-card">
+      <div className="section-shell py-20 md:py-28">
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="mx-auto mb-7 w-40 memory-ribbon" aria-hidden />
+          <h2 className="font-display text-[46px] font-normal leading-[0.98] tracking-[-0.045em] text-ink md:text-[64px]">
+            Make a move. Let the next 24 seconds answer.
+          </h2>
+          <p className="mx-auto mt-6 max-w-xl font-sans text-[14px] leading-relaxed text-muted">
+            Mint capped demo tokens, trade the live Sepolia pool, and settle the verdict
+            yourself. Best in Chrome with MetaMask or another injected wallet.
+          </p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Button asChild size="lg">
-            <Link href="/app">Launch App →</Link>
+              <Link href="/app">Open the console <span aria-hidden>↗</span></Link>
           </Button>
           <Button asChild size="lg" variant="outline">
-            <Link href="/docs">Read the docs</Link>
+              <Link href="/docs">Read the mechanism</Link>
           </Button>
+          </div>
         </div>
       </div>
     </section>

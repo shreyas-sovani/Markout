@@ -5,17 +5,18 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        canvas: "#faf8f2",
+        canvas: "#f7f6f2",
         surface: "#ffffff",
-        surface2: "#f4f0e7",
-        ink: { DEFAULT: "#191710", soft: "#403d33" },
-        muted: { DEFAULT: "#6c6a5f", foreground: "hsl(var(--muted-foreground))" },
-        faint: "#9b988c",
-        line: "#e9e4d6",
-        brand: { DEFAULT: "#B5276F", dim: "#931E5A", bright: "#D24B92" },
-        gold: { DEFAULT: "#b07f25", bright: "#d6a23f", soft: "#f1e6cb" },
-        rose: "#b4452f",
-        edge: "#211d14",
+        surface2: "#efeee8",
+        ink: { DEFAULT: "#181817", soft: "#45443f" },
+        muted: { DEFAULT: "#6f6e68", foreground: "hsl(var(--muted-foreground))" },
+        faint: "#9b9991",
+        line: "#dcdad2",
+        brand: { DEFAULT: "#a84f35", dim: "#843b28", bright: "#d97757" },
+        gold: { DEFAULT: "#b68a3a", bright: "#cfaa63", soft: "#f2ead9" },
+        rose: "#a84f35",
+        sage: "#657464",
+        edge: "#dcdad2",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -35,20 +36,20 @@ module.exports = {
       },
       letterSpacing: { tightest: "-0.04em" },
       borderRadius: {
-        xl2: "1.25rem",
+        xl2: "1.5rem",
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
       maxWidth: { content: "68rem" },
       boxShadow: {
-        card: "0 1px 2px rgba(25,23,16,0.04), 0 12px 32px -16px rgba(25,23,16,0.16)",
-        lift: "0 2px 4px rgba(25,23,16,0.05), 0 24px 60px -24px rgba(181,39,111,0.22)",
-        seal: "0 6px 18px -6px rgba(181,39,111,0.5)",
+        card: "0 1px 1px rgba(24,24,23,0.04), 0 16px 40px -28px rgba(24,24,23,0.28)",
+        lift: "0 18px 55px -30px rgba(24,24,23,0.38)",
+        seal: "0 9px 24px -14px rgba(168,79,53,0.7)",
       },
       keyframes: {
         rise: {
-          "0%": { opacity: "0", transform: "translateY(16px)" },
+          "0%": { opacity: "0", transform: "translateY(12px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
         pulseSoft: {
@@ -86,7 +87,7 @@ module.exports = {
         },
       },
       animation: {
-        rise: "rise 0.7s cubic-bezier(0.16,1,0.3,1) both",
+        rise: "rise 0.65s cubic-bezier(0.16,1,0.3,1) both",
         pulseSoft: "pulseSoft 2.6s ease-in-out infinite",
         sheen: "sheen 3s ease-in-out infinite",
         floaty: "floaty 6s ease-in-out infinite",

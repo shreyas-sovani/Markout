@@ -14,8 +14,8 @@ export function NetworkBanner() {
   if (!wrongChain) return null;
 
   return (
-    <Card className="mb-6 animate-rise border-rose/40 bg-rose/[0.06]">
-      <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+    <Card className="mb-6 animate-rise border-rose/30 bg-rose/[0.055] shadow-none">
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
         <div className="text-[13.5px] leading-relaxed text-ink-soft">
           <span className="font-semibold text-rose">Wrong network.</span> Your wallet is on a
           different chain. Switch to <span className="font-semibold text-ink">Sepolia</span> to
