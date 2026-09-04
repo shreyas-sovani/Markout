@@ -1225,7 +1225,10 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
             });
             await publicClient.waitForTransactionReceipt({ hash: h });
           }
-          // 2. Permit2 -> PositionManager, exact amount, 1 h expiry.
+          // 2. Permit2 -> PositionManager, exact amount, 24 h expiry. Re-approve
+          // whenever less than an hour remains — Permit2's AllowanceExpired is
+          // absolute-timestamp based, so a thin margin + stale pre-check is
+          // exactly how a mint dies mid-flow.
           const p2 = (await publicClient.readContract({
             address: PERMIT2,
             abi: PERMIT2_ABI,
@@ -1233,20 +1236,20 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
             args: [address, token as `0x${string}`, POSITION_MANAGER],
           })) as unknown as { amount: bigint; expiration: bigint };
           const now = BigInt(Math.floor(Date.now() / 1000));
-          if (p2.amount < amt || p2.expiration < now + 60n) {
+          if (p2.amount < amt || p2.expiration < now + 3600n) {
             setLpBusy(`permit2-${i}`);
             await simulate({
               address: PERMIT2,
               abi: PERMIT2_ABI as never,
               functionName: "approve",
-              args: [token, POSITION_MANAGER, amt, now + 3600n],
+              args: [token, POSITION_MANAGER, amt, now + 86400n],
               account: address,
             });
             const h = await wallet.writeContract({
               address: PERMIT2,
               abi: PERMIT2_ABI,
               functionName: "approve",
-              args: [token, POSITION_MANAGER, amt, now + 3600n] as never,
+              args: [token, POSITION_MANAGER, amt, now + 86400n] as never,
               account: address,
             });
             await publicClient.waitForTransactionReceipt({ hash: h });
@@ -1275,7 +1278,39 @@ export function MarkoutProvider({ children }: { children: ReactNode }) {
           ),
           encodeAbiParameters(SETTLE_PAIR_PARAMS, [TOKEN0, TOKEN1]),
         ];
-        const h = await modifyLiquiditiesTx(MINT_ACTIONS as `0x${string}`, params);
+        let h: `0x${string}`;
+        try {
+          h = await modifyLiquiditiesTx(MINT_ACTIONS as `0x${string}`, params);
+        } catch (mintErr) {
+          // Permit2's AllowanceExpired (0xd81b2f2e) is absolute-timestamp
+          // based; if a stale pre-check let one through, force fresh
+          // approvals and retry the mint once instead of dead-ending.
+          const raw = String((mintErr as { data?: string; message?: string }).data ?? (mintErr as { message?: string }).message ?? "");
+          if (!raw.includes("d81b2f2e")) throw mintErr;
+          sonnerToast.info("Permit2 allowance had expired — refreshing approvals and retrying…");
+          const now = BigInt(Math.floor(Date.now() / 1000));
+          for (const token of [TOKEN0, TOKEN1] as const) {
+            const amt = token === TOKEN0 ? amount0 : amount1;
+            setLpBusy("permit2-refresh");
+            await simulate({
+              address: PERMIT2,
+              abi: PERMIT2_ABI as never,
+              functionName: "approve",
+              args: [token, POSITION_MANAGER, amt, now + 86400n],
+              account: address,
+            });
+            const ah = await wallet.writeContract({
+              address: PERMIT2,
+              abi: PERMIT2_ABI,
+              functionName: "approve",
+              args: [token, POSITION_MANAGER, amt, now + 86400n] as never,
+              account: address,
+            });
+            await publicClient.waitForTransactionReceipt({ hash: ah });
+          }
+          setLpBusy("mint");
+          h = await modifyLiquiditiesTx(MINT_ACTIONS as `0x${string}`, params);
+        }
         const rc = await publicClient.waitForTransactionReceipt({ hash: h });
         const transfer = rc.logs.find(
           (l) =>

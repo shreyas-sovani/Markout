@@ -63,7 +63,7 @@ All source-verified on Etherscan. Current cut: **2026-09-02 (two-lane, coverage-
 | MarkoutHook | [0x1e9A034b21aB19D00556b429C281f9B29d8BB0Cc](https://sepolia.etherscan.io/address/0x1e9a034b21ab19d00556b429c281f9b29d8bb0cc) |
 | MarkoutRouter | [0xF06737dCbA252D276deCC0f6F0f2102AD20c7535](https://sepolia.etherscan.io/address/0xf06737dcba252d276decc0f6f0f2102ad20c7535) — convenience; any router works |
 | MarkoutBatchRouter | [0xC9aaB8CaD29bE99A36653eC5A6d78278C84D4067](https://sepolia.etherscan.io/address/0xc9aab8cad29be99a36653ec5a6d78278c84d4067) — immutable child; batch residuals pay the premium lane |
-| Demo token0 (MDB, currency0) | [0x41a9c2D06770375A41b94aBC94Bcf0CD14320060](https://sepolia.etherscan.io/address/0x41a9c2d06770375a41b94abc94bcf0cd14320060) |
+| Demo token0 (MDB, currency0) | [0x41A9c2d06770375a41b94aBC94bcf0CD14320060](https://sepolia.etherscan.io/address/0x41a9c2d06770375a41b94abc94bcf0cd14320060) |
 | Demo token1 (MDA, currency1) | [0xae0FE2707a76Ec31aB64Dc29557BdBEe9f1a5F5A](https://sepolia.etherscan.io/address/0xae0fe2707a76ec31ab64dc29557bdbee9f1a5f5a) |
 
 **Live proofs (2026-09-02, our own transactions):**

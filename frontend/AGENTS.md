@@ -22,6 +22,13 @@ Working against the **2026-09-02** deployment (hook `0x1e9A03…`, batch router 
 
 ## Decision Log
 
+### 2026-09-04 — Permit2 AllowanceExpired hardening on the LP add path
+- **Change**: LP add approvals now use a 24 h Permit2 expiry (was 1 h), re-approve whenever less than 1 h remains (was a 60 s margin), and if `modifyLiquidities` still reverts with selector `0xd81b2f2e` (`AllowanceExpired(uint256)` — Permit2 expiries are absolute timestamps), the flow forces fresh approvals for both tokens and retries the mint once, instead of dead-ending the judge mid-demo.
+- **Reasoning**: observed live — the thin margin plus an absolute-timestamp expiry let a mint die between pre-check and inclusion; Permit2's error is only decodable from the raw selector, which the generic `revertReason` toast hid.
+- **Rejected alternative(s)**: unlimited permit2 allowances (breaks the exact-amount discipline); signed permits (PosM `modifyLiquidities(bytes,uint256)` has no permit field).
+- **Task/session**: judge-reported LP add failure, 2026-09-04.
+
+
 ### 2026-09-02 — MetaMask connection failure containment
 - **Change**: `lib/wallet.ts` now routes connection through a provider-deduplicated `connectInjectedWallet` helper that checks existing permission first and performs one recovery read after request failure; `walletConnectionErrorMessage` maps MetaMask `4001`, `-32002`, `4900/4901`, and the generic “Failed to connect” case; account-switch fallback force-prompts only for unsupported permission APIs (`4200`/`-32601`), never cancellation or pending-request errors; `MarkoutProvider` catches connect and switch errors instead of leaking unhandled rejections; `lib/wallet-connect.test.mjs` covers the boundary.
 - **Reasoning**: the runtime overlay came from `onConnect` having `try/finally` but no `catch`. MetaMask’s pending-request state cannot be cancelled by the dApp, so deduplication plus explicit “open MetaMask” guidance is the correct recovery.
