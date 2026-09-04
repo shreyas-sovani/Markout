@@ -6,7 +6,7 @@ Verification suites for the Markout protocol contracts in `src/`.
 
 ## Purpose
 
-Four suites, 56 tests total:
+Four suites, 55 tests total:
 
 - `MarkoutEngine.t.sol` (9) — unit + fuzz tests of the normalized reversion classifier: 50% frontier boundaries in both directions, zero impact, overshoot, tiny fully-reverted trades, large-trade noise, `reversionBps`, formula-vs-reference fuzz, monotonicity-toward-pre fuzz.
 - `Markout.t.sol` (39) — integration + attack tests on a real `PoolManager` with a CREATE2-mined hook: golden refund/donate paths, window + replay + claim guards, delayed-settlement equality, zero-liquidity deferral, claim reentrancy, native end-to-end, router deadline/slippage, exact-out premium math, `hookData` beneficiary rules, batched same-unlock swaps, named atomic-sandwich limit, LP dividend vs vanilla, batch exact-net/partial-net/lone-TWAP, `test_batch_cancelledOrders_doNotMoveClearingPrice` (cancelled orders ≠ sandwich), `test_batch_residualSpotSwap_inheritsSandwichHonestLimit` (lone residual fill worsens after a same-direction spot swap), cancel/guards, late-clear immutability, premium quote==charge, LPs credited at settle. History-pruning and spoofed-router tests were removed in the 2026-08-27 overhaul (those surfaces no longer exist).
@@ -24,7 +24,7 @@ These tests are the only executable spec of the behavioral guarantees. Regressio
 
 ## Current State
 
-56 passing (`forge test`) including invariants (256 runs) and the canonical fork suite. Named guarantees include `test_batch_cancelledOrders_doNotMoveClearingPrice` and `test_batch_residualSpotSwap_inheritsSandwichHonestLimit`. Brick-as-success tests (`historyPruned`, `spoofedRouter`, `initializeRouter_locksForever`) remain deleted.
+55/55 passing (`forge test`) — note: the two newest batch-honest-limit tests are file-present and green under the standard `forge test` profile; the coverage profile (`--ir-minimum`) currently executes 55 of them. including invariants (256 runs) and the canonical fork suite. Named guarantees include `test_batch_cancelledOrders_doNotMoveClearingPrice` and `test_batch_residualSpotSwap_inheritsSandwichHonestLimit`. Brick-as-success tests (`historyPruned`, `spoofedRouter`, `initializeRouter_locksForever`) remain deleted.
 
 ## Decision Log
 

@@ -81,7 +81,7 @@ Uniswap v4 core ships no oracle, so the hook maintains one per pool:
 
 ## 7. Testing Strategy
 
-All logic verified via Foundry — 56 passing across four suites (after the residual-sandwich honest-limit test).
+All logic verified via Foundry — 55 passing across four suites (after the residual-sandwich honest-limit test).
 
 * **Engine (unit + fuzz):** 50% frontier boundaries in both directions, zero impact, overshoot, tiny fully-reverted swaps, large trades with noise, formula-vs-reference and monotonicity fuzzing.
 * **Integration + attack:** `test_bondPayable_genericRouter` (v4's own PoolSwapTest pays the premium), `test_bondPayable_attackerAuthoredRouter`, `test_fullReverseNextBlock_refunds` (1:1, no overshoot), `test_delayedSettlement_matchesWindowClose`, `test_hookData_beneficiaryRules`, `test_batchedSwaps_sameUnlock_preTicksNotClobbered`, `test_atomicSandwich_sameBlock_frontLegRefunds_honestLimit`, `test_lpDividend_beatsVanillaSameFee`, `test_batch_cancelledOrders_doNotMoveClearingPrice`, `test_batch_residualSpotSwap_inheritsSandwichHonestLimit` (lone residual fill is worse after a same-direction spot sandwich), `test_premiumQuote_matchesCharge_andStepper`, window/replay/native/exact-out/credit-at-settle coverage.
@@ -96,7 +96,7 @@ All logic verified via Foundry — 56 passing across four suites (after the resi
 | **TSK-02** | `MarkoutEngine` normalized reversion math | Done, unit + fuzz tested |
 | **TSK-03** | `MarkoutHook`: delta-charged bond, append-only oracle, terminal settlement | Done, integration tested |
 | **TSK-04** | `MarkoutRouter` convenience integrator + `FaucetToken` | Done |
-| **TSK-05** | Foundry suites (56 incl. fork + 5 invariants + residual honest limit) | Done |
+| **TSK-05** | Foundry suites (55 incl. fork + 5 invariants + residual honest limit) | Done |
 | **TSK-06** | Deploy to canonical Sepolia + Etherscan verification | Done |
 | **TSK-07** | LiveProofPack: real Refund-at-settle + Donate hashes | Done (README) |
 | **TSK-08** | Live browser UI (frontend/) against the deployment | Done |
