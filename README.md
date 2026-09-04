@@ -18,7 +18,7 @@
 
 **Launch the venue:** [markout-nine.vercel.app](https://markout-nine.vercel.app) · [Memory Console](https://markout-nine.vercel.app/app) · [Protocol Docs](https://markout-nine.vercel.app/docs)
 
-**Demo video:** ▶️ https://youtu.be/2oOW-RyrMcc
+**Demo video:** ▶️ https://youtu.be/fvdTjGUC8CY
 
 </div>
 
